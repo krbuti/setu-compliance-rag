@@ -1,0 +1,21 @@
+# OpenShift Route — replaces Kubernetes LoadBalancer/Ingress.
+# Provides TLS termination and an auto-assigned hostname:
+#   https://setu-compliance-rag-setu-rag.<cluster-apps-domain>
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: setu-compliance-rag
+  namespace: setu-rag
+  labels:
+    app: setu-compliance-rag
+spec:
+  to:
+    kind: Service
+    name: setu-compliance-rag
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect   # HTTP → HTTPS automatically
+  wildcardPolicy: None

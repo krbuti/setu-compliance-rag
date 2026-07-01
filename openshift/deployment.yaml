@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: setu-compliance-rag
+  namespace: setu-rag
+  labels:
+    app: setu-compliance-rag
+  annotations:
+    image.openshift.io/triggers: >
+      [{"from":{"kind":"ImageStreamTag","name":"setu-compliance-rag:latest","namespace":"setu-rag"},
+        "fieldPath":"spec.template.spec.containers[0].image","pause":"false"}]
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: setu-compliance-rag
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0     # zero-downtime: new pod must be ready before old is removed
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: setu-compliance-rag
+    spec:
+      # OpenShift Security Context Constraints (SCC)
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1001         # ensures mounted volumes are group-writable by appuser
+      containers:
+        - name: app
+          # Image reference resolved from ImageStream by the annotation above
+          image: setu-compliance-rag:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 7860
+              protocol: TCP
+          securityContext:
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false   # Gradio writes temp files at startup
+          env:
+            - name: LLM_PROVIDER
+              value: "groq"
+            - name: LLM_MODEL
+              value: "llama-3.1-8b"
+            - name: EMBEDDINGS_PROVIDER
+              value: "jina"
+            - name: EMBEDDINGS_MODEL
+              value: "jina-embeddings-v2-base-en"
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: setu-rag-secrets
+                  key: GROQ_API_KEY
+            - name: JINA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: setu-rag-secrets
+                  key: JINA_API_KEY
+          volumeMounts:
+            - name: chroma-storage
+              mountPath: /app/chroma_db
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 7860
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 7860
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: chroma-storage
+          persistentVolumeClaim:
+            claimName: chroma-pvc

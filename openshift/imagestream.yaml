@@ -1,0 +1,8 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: setu-compliance-rag
+  namespace: setu-rag
+spec:
+  lookupPolicy:
+    local: true   # pods in this namespace can reference this stream by name

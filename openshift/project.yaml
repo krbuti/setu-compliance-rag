@@ -1,0 +1,7 @@
+apiVersion: project.openshift.io/v1
+kind: Project
+metadata:
+  name: setu-rag
+  annotations:
+    openshift.io/description: "SETU Compliance RAG Policy Chatbot"
+    openshift.io/display-name: "SETU Compliance RAG"

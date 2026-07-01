@@ -12,17 +12,24 @@ COPY requirements-runtime.txt .
 RUN pip install --no-cache-dir -r requirements-runtime.txt
 
 # Copy application source
-COPY config/           ./config/
-COPY app_gradio.py     .
-COPY main_agent.py     .
+COPY config/              ./config/
+COPY app_gradio.py        .
+COPY main_agent.py        .
 COPY information_agent.py .
-COPY triage_agent.py   .
-COPY action_agent.py   .
+COPY triage_agent.py      .
+COPY action_agent.py      .
 COPY data_preprocessing.py .
-COPY ingest.py         .
+COPY ingest.py            .
 
-# ChromaDB vector store is mounted at runtime via volume
-# Dataset JSONs for re-ingest are also mounted if needed
+# OpenShift runs containers as a random non-root UID in group 0.
+# uid=1001, gid=0 pattern: group-readable so any arbitrary UID works.
+RUN useradd -u 1001 -r -g 0 -m -d /app appuser && \
+    chown -R 1001:0 /app && \
+    chmod -R g=u /app
+
+USER 1001
+
+# ChromaDB and dataset are mounted at runtime
 VOLUME ["/app/chroma_db", "/app/dataset"]
 
 EXPOSE 7860

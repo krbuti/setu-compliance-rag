@@ -1,0 +1,36 @@
+# BuildConfig: pulls source from GitHub and builds via the Dockerfile.
+# OpenShift runs the build inside a pod — no local Docker daemon required.
+#
+# Start a build manually:
+#   oc start-build setu-compliance-rag -n setu-rag --follow
+#
+# GitHub webhook auto-trigger: set GITHUB_WEBHOOK_SECRET in OpenShift Secrets,
+# then register the webhook URL shown by:
+#   oc describe bc setu-compliance-rag -n setu-rag
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: setu-compliance-rag
+  namespace: setu-rag
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/krbuti/setu-compliance-rag.git
+      ref: DevOps
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: setu-compliance-rag:latest
+  triggers:
+    - type: ConfigChange
+    - type: GitHub
+      github:
+        secretReference:
+          name: setu-rag-github-webhook
+  successfulBuildsHistoryLimit: 3
+  failedBuildsHistoryLimit: 3
