@@ -34,6 +34,9 @@ from config.llm_config import get_embeddings, get_llm
 CHROMA_DIR = Path(__file__).parent / "chroma_db"
 COLLECTION  = "setu_compliance"
 
+# SETU does not use numeric policy codes. Any pattern like SETU-HR-001 is invented.
+_FAKE_CODE_RE = re.compile(r'\bSETU-[A-Z]{2,}-\d+\b|\bSETU-\d{3,}\b', re.IGNORECASE)
+
 # Known policy document names for self-query detection
 KNOWN_POLICIES = [
     "Data Protection", "Data Retention", "Data Governance",
@@ -233,6 +236,15 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
 
 
 def get_information(vs: Chroma, query: str) -> str:
+    # SETU does not use numeric policy reference codes — reject immediately
+    if _FAKE_CODE_RE.search(query):
+        return (
+            "SETU does not use numeric policy reference codes. "
+            "Policy documents are identified by their full title (e.g. 'Sick Leave Policy', "
+            "'Parental Leave Policy'). Please search the SETU policy library by topic name, "
+            "or contact HR with the specific subject area you need."
+        )
+
     llm             = get_llm()
     policy_filter   = _detect_policy_filter(query)
     queries         = _lightweight_expand(query, llm)
@@ -267,11 +279,16 @@ def get_information(vs: Chroma, query: str) -> str:
         "You are a SETU policy information assistant.\n"
         "Answer the question using ONLY the policy excerpts below.\n"
         "Always name the policy document (shown as [Source: ...]) in your answer.\n"
-        "If the policy excerpts are relevant but do not give a specific number or date, "
-        "explain what the policy DOES say (e.g. 'entitlements are set in individual contracts' "
-        "or 'refer to the relevant circular') — do NOT say the information is absent.\n"
-        "Only say 'This is not covered in the retrieved policies.' if the excerpts are "
-        "completely unrelated to the question.\n\n"
+        "If the excerpts are on-topic but lack a specific number or date, explain what "
+        "the policy DOES say (e.g. 'entitlements are set in individual contracts') — "
+        "do NOT say the information is absent.\n"
+        "IMPORTANT: If the excerpts do NOT directly address the topic in the question "
+        "(e.g. the question asks about remote working or hybrid schedules but the excerpts "
+        "cover unrelated subjects), say clearly: 'No dedicated SETU policy on [topic] was "
+        "found in the retrieved documents.' Do NOT extrapolate or infer from unrelated policies.\n"
+        "NEVER invent contact details (email addresses, phone numbers, names). "
+        "If asked for contact info, say 'contact the relevant SETU office directly' — do not fabricate.\n"
+        "Only name a policy document if it is listed in the [Source: ...] tags below.\n\n"
         f"Policy Excerpts{filter_note}:\n{context}\n\n"
         f"Question: {query}\n\n"
         "Answer (2-4 sentences, cite the source policy):"

@@ -92,9 +92,10 @@ def combine_node(state: PolicyState) -> PolicyState:
         "- Answer in plain prose, 2-4 sentences max\n"
         "- Do NOT write a letter (no 'Dear...', no 'Best regards', no sign-off)\n"
         "- Do NOT use placeholder text like [Your Name], [Staff Member], [Date]\n"
+        "- Do NOT invent email addresses, phone numbers, or staff names — say 'contact SETU HR directly' instead\n"
         "- Cite the real policy document name if relevant\n"
         "- If the query names a policy code that does not appear in the information below, "
-        "say clearly that no such policy code exists in SETU's retrieved documents\n\n"
+        "say clearly that SETU does not use numeric policy codes\n\n"
         f'Question: "{query}"\n\n'
         + "\n\n".join(sections)
     )
