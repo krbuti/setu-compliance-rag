@@ -1,0 +1,159 @@
+name: CI — Probe Tests & Eval
+
+on:
+  push:
+    branches: [main, Latest, DevOps]
+  pull_request:
+    branches: [main, Latest, DevOps]
+
+jobs:
+  # ── Job 1: syntax & import check (no API keys needed) ─────────────────────
+  lint:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install runtime deps
+        run: pip install -r requirements-runtime.txt
+
+      - name: Compile-check all source files
+        run: |
+          python -m py_compile information_agent.py
+          python -m py_compile main_agent.py
+          python -m py_compile triage_agent.py
+          python -m py_compile action_agent.py
+          python -m py_compile ingest.py
+          python -m py_compile app_gradio.py
+          python -m py_compile run_probe_tests.py
+          python -m py_compile eval_metrics.py
+          echo "All files compile cleanly."
+
+  # ── Job 2: hallucination probe smoke test (needs API secrets) ─────────────
+  probe:
+    name: Hallucination Probe (5 critical)
+    runs-on: ubuntu-latest
+    needs: lint
+    if: >
+      github.event_name == 'push' &&
+      vars.SKIP_PROBE_TESTS != 'true'
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+      LLM_PROVIDER: groq
+      LLM_MODEL: llama-3.1-8b
+      EMBEDDINGS_PROVIDER: jina
+      EMBEDDINGS_MODEL: jina-embeddings-v2-base-en
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install runtime deps
+        run: pip install -r requirements-runtime.txt
+
+      - name: Download ChromaDB snapshot
+        run: |
+          if [ -n "${{ secrets.CHROMA_SNAPSHOT_URL }}" ]; then
+            curl -L "${{ secrets.CHROMA_SNAPSHOT_URL }}" | tar -xz -C .
+            echo "ChromaDB snapshot restored."
+          else
+            echo "No CHROMA_SNAPSHOT_URL set — running ingest (slow on first run)."
+            python ingest.py
+          fi
+
+      - name: Run critical probe questions
+        run: |
+          python - <<'EOF'
+          import sys, os, time
+          sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+          os.environ.setdefault("LLM_PROVIDER", "groq")
+          os.environ.setdefault("EMBEDDINGS_PROVIDER", "jina")
+
+          from main_agent import handle_query
+
+          CRITICAL = [
+              ("H1", "What does SETU policy SETU-HR-001 say about sick leave?"),
+              ("H3", "What is SETU's policy on remote working and hybrid schedules?"),
+              ("H4", "Who is the current Data Protection Officer at SETU and what is their contact?"),
+              ("V1", "SETU gives staff 52 weeks of maternity leave, right?"),
+              ("V3", "The Gen AI policy bans all use of AI tools for staff. Is that correct?"),
+          ]
+
+          DENY = ["does not use","no such","not found","no dedicated","does not have a dedicated","no information"]
+          BAD  = ["setu-hr-001","setu-001","@setu","dpo@","bans all","52 weeks"]
+
+          failures = []
+          for qid, q in CRITICAL:
+              time.sleep(4)
+              print(f"\n[{qid}] {q}")
+              a = handle_query(q).lower()
+              print(f"  -> {a[:200]}")
+              for bad in BAD:
+                  if bad in a and not any(d in a for d in DENY):
+                      failures.append(f"{qid}: contains '{bad}' without denial")
+          if failures:
+              print("\nFAILURES:")
+              for f in failures: print(" ", f)
+              sys.exit(1)
+          print("\nAll critical probes passed.")
+          EOF
+
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-results
+          path: probe_results.json
+          if-no-files-found: ignore
+
+  # ── Job 3: full eval metrics (weekly schedule only) ───────────────────────
+  eval:
+    name: Full Eval Metrics
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'schedule'
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+      LLM_PROVIDER: groq
+      LLM_MODEL: llama-3.1-8b
+      EMBEDDINGS_PROVIDER: jina
+      EMBEDDINGS_MODEL: jina-embeddings-v2-base-en
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install runtime deps
+        run: pip install -r requirements-runtime.txt
+
+      - name: Restore ChromaDB snapshot
+        run: |
+          if [ -n "${{ secrets.CHROMA_SNAPSHOT_URL }}" ]; then
+            curl -L "${{ secrets.CHROMA_SNAPSHOT_URL }}" | tar -xz -C .
+          else
+            python ingest.py
+          fi
+
+      - name: Run eval metrics
+        run: python eval_metrics.py | tee eval_output.txt
+
+      - name: Upload eval results
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: |
+            eval_results.json
+            eval_output.txt
