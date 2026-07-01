@@ -144,20 +144,65 @@ def _make_jina_embeddings(model_id: str, api_key: str):
         def embed_query(self, text: str) -> list[float]:
             return self._embed([text])[0]
 
+        def _clean(self, text: str) -> str:
+            import re as _re
+            # Remove control characters (except tab/newline) and truncate
+            text = _re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", text)
+            return text[:8000]  # Jina max ~8192 tokens; 8000 chars is safe
+
+        def _call_jina(self, batch: list[str]) -> list[list[float]]:
+            import time as _time
+            for attempt in range(4):
+                try:
+                    resp = _requests.post(
+                        "https://api.jina.ai/v1/embeddings",
+                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json={"model": model_id, "input": batch},
+                        timeout=120,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()["data"]
+                    return [
+                        item["embedding"]
+                        for item in sorted(data, key=lambda x: x["index"])
+                    ]
+                except _requests.exceptions.HTTPError as exc:
+                    if exc.response is not None and exc.response.status_code == 400:
+                        # 400 means bad content — fall through to per-item mode
+                        raise
+                    if attempt == 3:
+                        raise
+                    wait = 2 ** attempt
+                    print(f"  [WARN] Jina attempt {attempt+1} failed ({exc}), retrying in {wait}s...")
+                    _time.sleep(wait)
+                except Exception as exc:
+                    if attempt == 3:
+                        raise
+                    wait = 2 ** attempt
+                    print(f"  [WARN] Jina attempt {attempt+1} failed ({exc}), retrying in {wait}s...")
+                    _time.sleep(wait)
+
         def _embed(self, texts: list[str]) -> list[list[float]]:
-            # Jina allows up to 2048 texts per call; batch to be safe
+            import time as _time
+            cleaned = [self._clean(t) for t in texts]
             results = []
-            for i in range(0, len(texts), 128):
-                batch = texts[i : i + 128]
-                resp = _requests.post(
-                    "https://api.jina.ai/v1/embeddings",
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={"model": model_id, "input": batch},
-                    timeout=60,
-                )
-                resp.raise_for_status()
-                data = resp.json()["data"]
-                results.extend(item["embedding"] for item in sorted(data, key=lambda x: x["index"]))
+            batch_size = 32
+            for i in range(0, len(cleaned), batch_size):
+                batch = cleaned[i : i + batch_size]
+                try:
+                    results.extend(self._call_jina(batch))
+                except _requests.exceptions.HTTPError as exc:
+                    if exc.response is not None and exc.response.status_code == 400:
+                        # One bad item in batch — embed one-by-one to isolate it
+                        print(f"  [WARN] Batch {i//batch_size} got 400, switching to per-item mode...")
+                        for j, item_text in enumerate(batch):
+                            try:
+                                results.extend(self._call_jina([item_text]))
+                            except Exception as item_exc:
+                                print(f"  [WARN] Skipping chunk {i+j} (embed failed: {item_exc})")
+                                results.append([0.0] * 768)  # zero vector placeholder
+                    else:
+                        raise
             return results
 
     print(f"[OK] Using Jina cloud embeddings: {model_id}")

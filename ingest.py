@@ -70,26 +70,31 @@ def ingest(dataset_dir: Path = DATASET_DIR, chroma_dir: Path = CHROMA_DIR) -> in
     print(f"[INFO] Writing to ChromaDB at {chroma_dir} ...")
 
     BATCH = 100
-    vectorstore = None
-    for start in range(0, len(texts), BATCH):
-        b_texts = texts    [start : start + BATCH]
-        b_meta  = metadatas[start : start + BATCH]
-        b_ids   = ids      [start : start + BATCH]
 
-        if vectorstore is None:
-            vectorstore = Chroma.from_texts(
-                texts=b_texts,
-                metadatas=b_meta,
-                embedding=embeddings,
-                ids=b_ids,
-                persist_directory=str(chroma_dir),
-                collection_name=COLLECTION,
-            )
-        else:
-            vectorstore.add_texts(texts=b_texts, metadatas=b_meta, ids=b_ids)
+    # Resume support: if ChromaDB already exists, skip IDs already present
+    vectorstore = Chroma(
+        persist_directory=str(chroma_dir),
+        embedding_function=embeddings,
+        collection_name=COLLECTION,
+    )
+    existing_ids = set(vectorstore._collection.get(include=[])["ids"])
+    if existing_ids:
+        print(f"[INFO] Resuming — {len(existing_ids)} chunks already indexed, skipping them.")
 
-        done = min(start + BATCH, len(texts))
-        print(f"  Indexed {done}/{len(texts)} chunks", end="\r")
+    pending = [
+        (t, m, id_)
+        for t, m, id_ in zip(texts, metadatas, ids)
+        if id_ not in existing_ids
+    ]
+
+    for start in range(0, len(pending), BATCH):
+        batch = pending[start : start + BATCH]
+        b_texts = [x[0] for x in batch]
+        b_meta  = [x[1] for x in batch]
+        b_ids   = [x[2] for x in batch]
+        vectorstore.add_texts(texts=b_texts, metadatas=b_meta, ids=b_ids)
+        done = min(start + BATCH, len(pending))
+        print(f"  Indexed {len(existing_ids) + done}/{len(texts)} chunks", end="\r")
 
     print(f"\n[OK] Done. {len(texts)} chunks indexed from {len(raw_docs)} documents.")
     print(f"[OK] Vector store saved to {chroma_dir}")
