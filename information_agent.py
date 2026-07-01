@@ -191,21 +191,30 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
     Returns a corrected answer when unsupported claims are found, or the original
     answer unchanged if everything checks out.
     """
+    # Extract source names actually present in context
+    import re as _re
+    source_names = _re.findall(r'\[Source:\s*([^\]]+)\]', context)
+    sources_list = "\n".join(f"  - {s.strip()}" for s in source_names) or "  (none retrieved)"
+
     reflect_prompt = (
-        "You are a fact-checker for a university policy assistant.\n\n"
-        "Retrieved policy excerpts (ground truth):\n"
+        "You are a strict fact-checker for a university policy assistant.\n\n"
+        "The ONLY policy documents retrieved for this query are:\n"
+        f"{sources_list}\n\n"
+        "Retrieved excerpts (ground truth):\n"
         f"{context}\n\n"
         "Draft answer to verify:\n"
         f"{initial_answer}\n\n"
-        "Check the draft answer against the excerpts ONLY. Identify:\n"
-        "1. Policy names or reference codes NOT present in the excerpts "
-        "(e.g. invented codes like SETU-001, SETU-HR-002)\n"
-        "2. Specific numbers, dates, or entitlements NOT traceable to the excerpts\n"
-        "3. Any claim that contradicts or goes beyond what the excerpts state\n\n"
-        "Rules:\n"
-        "- If the answer is fully grounded: reply exactly: VERIFIED: <original answer unchanged>\n"
-        "- If it contains unsupported claims: reply exactly: REVISED: <corrected answer "
-        "with all unsupported claims removed or qualified as 'refer to the full policy'>\n"
+        "Check the draft answer. Flag it as needing REVISION if ANY of these are true:\n"
+        "1. It mentions a policy reference code (e.g. SETU-001, SETU-HR-002, SETU-AC-005) "
+        "— SETU does not use numeric policy codes; any such code is invented\n"
+        "2. It names a policy document NOT in the source list above\n"
+        "3. It states a specific number, date, or entitlement NOT present word-for-word in the excerpts\n"
+        "4. It contains placeholder text like [Your Name], [Staff Member], [Date]\n"
+        "5. It describes what a non-existent policy 'says' instead of stating the policy was not found\n\n"
+        "If the answer passes all checks: reply VERIFIED: <original answer unchanged>\n"
+        "If it fails any check: reply REVISED: <corrected answer — remove invented codes/names, "
+        "replace unsupported facts with 'refer to the full policy document', "
+        "remove any placeholder text>\n"
         "Output only VERIFIED or REVISED, nothing else."
     )
     try:
