@@ -182,6 +182,47 @@ def _lightweight_expand(query: str, llm) -> list[str]:
     return [query, alt] if alt and alt != query else [query]
 
 
+def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> str:
+    """
+    Second-pass LLM check: verify the initial answer is fully grounded in the
+    retrieved context. Catches hallucinated policy names, invented reference codes
+    (e.g. SETU-001), and facts not traceable to the source excerpts.
+
+    Returns a corrected answer when unsupported claims are found, or the original
+    answer unchanged if everything checks out.
+    """
+    reflect_prompt = (
+        "You are a fact-checker for a university policy assistant.\n\n"
+        "Retrieved policy excerpts (ground truth):\n"
+        f"{context}\n\n"
+        "Draft answer to verify:\n"
+        f"{initial_answer}\n\n"
+        "Check the draft answer against the excerpts ONLY. Identify:\n"
+        "1. Policy names or reference codes NOT present in the excerpts "
+        "(e.g. invented codes like SETU-001, SETU-HR-002)\n"
+        "2. Specific numbers, dates, or entitlements NOT traceable to the excerpts\n"
+        "3. Any claim that contradicts or goes beyond what the excerpts state\n\n"
+        "Rules:\n"
+        "- If the answer is fully grounded: reply exactly: VERIFIED: <original answer unchanged>\n"
+        "- If it contains unsupported claims: reply exactly: REVISED: <corrected answer "
+        "with all unsupported claims removed or qualified as 'refer to the full policy'>\n"
+        "Output only VERIFIED or REVISED, nothing else."
+    )
+    try:
+        reflection = llm.invoke(reflect_prompt).content.strip()
+        if reflection.startswith("VERIFIED:"):
+            return reflection[len("VERIFIED:"):].strip()
+        elif reflection.startswith("REVISED:"):
+            revised = reflection[len("REVISED:"):].strip()
+            print("[INFO] Reflection: unsupported claims removed from answer")
+            return revised
+        else:
+            return initial_answer
+    except Exception as exc:
+        print(f"[WARN] Reflection step failed ({exc}), returning original answer")
+        return initial_answer
+
+
 def get_information(vs: Chroma, query: str) -> str:
     llm             = get_llm()
     policy_filter   = _detect_policy_filter(query)
@@ -202,8 +243,8 @@ def get_information(vs: Chroma, query: str) -> str:
 
     # Cross-encoder rerank -> top 5 then use children directly
     # (parent-chunk upgrade skipped: stored parent metadata may point to wrong sections)
-    top3 = _cross_encode_rerank(query, unique, top_k=5)
-    context_docs = top3
+    top5 = _cross_encode_rerank(query, unique, top_k=5)
+    context_docs = top5
 
     # Build cited context block
     context_parts = []
@@ -226,7 +267,10 @@ def get_information(vs: Chroma, query: str) -> str:
         f"Question: {query}\n\n"
         "Answer (2-4 sentences, cite the source policy):"
     )
-    return llm.invoke(answer_prompt).content
+    initial_answer = llm.invoke(answer_prompt).content
+
+    # Reflection pass: verify answer is grounded in the retrieved context
+    return _reflect_and_verify(query, context, initial_answer, llm)
 
 
 if __name__ == "__main__":

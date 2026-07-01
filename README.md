@@ -77,14 +77,16 @@ User Query
 **Retrieval pipeline (per query):**
 ```
 Query
-  -> Self-query filter  (detect named policy -> add metadata filter)
-  -> Lightweight expand (1 LLM rewrite)
-  -> BM25 retrieval     (k=8 keyword matches)
-  -> MMR ChromaDB       (k=8 semantic, diversity-aware)
-  -> RRF fusion         (merge both ranked lists)
+  -> Self-query filter     (detect named policy -> add metadata filter)
+  -> Lightweight expand    (1 LLM rewrite)
+  -> BM25 retrieval        (k=8 keyword matches)
+  -> MMR ChromaDB          (k=8 semantic, diversity-aware)
+  -> RRF fusion            (merge both ranked lists)
   -> Cross-encoder rerank  (ms-marco-MiniLM, ~50ms, no API call)
   -> Top-5 chunks
-  -> Grounded answer with source policy citations
+  -> Initial answer generation  (LLM call #1, grounded in context)
+  -> Reflection / verification  (LLM call #2, removes hallucinated claims)
+  -> Final cited answer
 ```
 
 ---
@@ -187,6 +189,24 @@ python app_gradio.py
 ---
 
 ## What's New (Latest branch)
+
+### Reflection / Hallucination Prevention
+
+A second-pass LLM verification step now runs after every answer is generated.
+It checks whether every claim — especially policy names, reference codes, and
+specific numbers — is actually present in the retrieved context.
+
+```
+[Initial Answer] → [Reflection Check] → VERIFIED (unchanged) or REVISED (hallucinations removed)
+```
+
+**Without reflection:** The LLM sometimes invents policy reference codes like
+`SETU-001` or `SETU-HR-005` that look real but don't exist in any SETU document.
+
+**With reflection:** Those invented codes are caught and removed before the answer
+reaches the user.
+
+See [REFLECTION.md](REFLECTION.md) for full details, examples, and implementation notes.
 
 ### Table-aware chunking
 Previous versions split markdown tables at 256-char boundaries, tearing table rows away from their header row. Answers about leave days, fee structures, and approval thresholds were vague as a result.
