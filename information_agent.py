@@ -231,6 +231,8 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
             return reflection[len("VERIFIED:"):].strip()
         elif reflection.startswith("REVISED:"):
             revised = reflection[len("REVISED:"):].strip()
+            # Strip any email addresses that survived the LLM revision
+            revised = re.sub(r'\b[\w.+-]+@[\w.-]+\.\w+\b', '[contact SETU directly]', revised)
             print("[INFO] Reflection: unsupported claims removed from answer")
             return revised
         else:

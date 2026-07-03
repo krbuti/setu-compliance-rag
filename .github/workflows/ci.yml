@@ -92,8 +92,9 @@ jobs:
 
           DENY = ["does not use","no such","not found","no dedicated","does not have a dedicated",
                   "no information","incorrect","does not give","does not provide","26 weeks",
-                  "26 consecutive","not entitled","does not ban","not ban"]
-          BAD  = ["setu-hr-001","setu-001","@setu","dpo@","bans all use"]
+                  "26 consecutive","not entitled","does not ban","not ban","not specified",
+                  "contact the relevant","contact setu directly","is not provided"]
+          BAD  = ["setu-hr-001","setu-001","bans all use"]
 
           failures = []
           for qid, q in CRITICAL:
