@@ -22,7 +22,7 @@ kind: Kustomization
 # Developer Sandbox: your namespace is shown top-right in the OCP web console
 #   e.g.  kevaljoshi-dev
 # Full OpenShift:    setu-rag  (after running: oc new-project setu-rag)
-namespace: setu-rag
+namespace: keval-joshi-dev
 # ─────────────────────────────────────────────────────────────────────────────
 # Kustomize injects this namespace into EVERY resource below automatically.
 # You only need to change it here — not in any individual yaml file.

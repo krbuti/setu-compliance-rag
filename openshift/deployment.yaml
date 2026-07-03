@@ -24,9 +24,12 @@ spec:
         app: setu-compliance-rag
     spec:
       # OpenShift Security Context Constraints (SCC)
+      # Do NOT set runAsUser or fsGroup — Developer Sandbox enforces a
+      # namespace-specific UID range (e.g. 1010630000-1010639999).
+      # OpenShift auto-assigns a UID; the Dockerfile uses gid=0 + chmod g=u
+      # so any arbitrary UID works.
       securityContext:
         runAsNonRoot: true
-        fsGroup: 1001         # ensures mounted volumes are group-writable by appuser
       containers:
         - name: app
           # Image reference resolved from ImageStream by the annotation above
@@ -36,7 +39,6 @@ spec:
             - containerPort: 7860
               protocol: TCP
           securityContext:
-            runAsUser: 1001
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
