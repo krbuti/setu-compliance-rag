@@ -130,13 +130,13 @@ def _reciprocal_rank_fusion(
 
 
 def _hybrid_retrieve(
-    vs: Chroma, query: str, policy_filter: Optional[str] = None, top_n: int = 12
+    vs: Chroma, query: str, policy_filter: Optional[str] = None, top_n: int = 8
 ) -> list[Document]:
     """BM25 + MMR dense retrieval fused with RRF."""
     # Dense: MMR ensures diversity across the retrieved set
     dense_kwargs = {
         "search_type": "mmr",
-        "search_kwargs": {"k": 8, "fetch_k": 30, "lambda_mult": 0.7},
+        "search_kwargs": {"k": 6, "fetch_k": 20, "lambda_mult": 0.7},
     }
     if policy_filter:
         dense_kwargs["search_kwargs"]["filter"] = {"doc_name": {"$contains": policy_filter}}
@@ -245,14 +245,11 @@ def get_information(vs: Chroma, query: str) -> str:
             "or contact HR with the specific subject area you need."
         )
 
-    llm             = get_llm()
-    policy_filter   = _detect_policy_filter(query)
-    queries         = _lightweight_expand(query, llm)
+    llm           = get_llm()
+    policy_filter = _detect_policy_filter(query)
 
-    # Hybrid retrieval for each query variant, then fuse
-    all_candidates: list[Document] = []
-    for q in queries:
-        all_candidates.extend(_hybrid_retrieve(vs, q, policy_filter))
+    # Single-pass hybrid retrieval (no expansion — saves 1 LLM call + embedding)
+    all_candidates = _hybrid_retrieve(vs, query, policy_filter)
 
     # Deduplicate by content
     seen, unique = set(), []
@@ -295,8 +292,17 @@ def get_information(vs: Chroma, query: str) -> str:
     )
     initial_answer = llm.invoke(answer_prompt).content
 
-    # Reflection pass: verify answer is grounded in the retrieved context
-    return _reflect_and_verify(query, context, initial_answer, llm)
+    # Reflection only when answer contains specifics that could be hallucinated
+    _needs_reflect = re.search(
+        r'\d+\s*(day|week|month|year|%|euro|€)s?'
+        r'|@\w+\.\w+'          # email-like
+        r'|SETU-[A-Z0-9-]+'   # policy code
+        r'|section\s+\d',
+        initial_answer, re.IGNORECASE
+    )
+    if _needs_reflect:
+        return _reflect_and_verify(query, context, initial_answer, llm)
+    return initial_answer
 
 
 if __name__ == "__main__":
