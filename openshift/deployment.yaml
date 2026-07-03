@@ -42,25 +42,11 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: false   # Gradio writes temp files at startup
-          env:
-            - name: LLM_PROVIDER
-              value: "groq"
-            - name: LLM_MODEL
-              value: "llama-3.1-8b"
-            - name: EMBEDDINGS_PROVIDER
-              value: "jina"
-            - name: EMBEDDINGS_MODEL
-              value: "jina-embeddings-v2-base-en"
-            - name: GROQ_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: setu-rag-secrets
-                  key: GROQ_API_KEY
-            - name: JINA_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: setu-rag-secrets
-                  key: JINA_API_KEY
+          envFrom:
+            - configMapRef:
+                name: setu-rag-config    # non-secret config (LLM_PROVIDER, MODEL, etc.)
+            - secretRef:
+                name: setu-rag-secrets   # API keys (GROQ_API_KEY, JINA_API_KEY)
           volumeMounts:
             - name: chroma-storage
               mountPath: /app/chroma_db

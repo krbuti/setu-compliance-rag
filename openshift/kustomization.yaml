@@ -1,0 +1,25 @@
+# Deploy everything with one command:
+#
+#   oc apply -k openshift/ -n setu-rag
+#
+# Prerequisites (run once before kustomize apply):
+#   oc new-project setu-rag
+#   oc create secret generic setu-rag-secrets \
+#       --from-literal=GROQ_API_KEY=<key> \
+#       --from-literal=JINA_API_KEY=<key>
+#   oc create secret generic setu-rag-github-webhook \
+#       --from-literal=WebHookSecretKey=<random-string>
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: setu-rag
+
+resources:
+  - configmap.yaml
+  - pvc.yaml
+  - imagestream.yaml
+  - buildconfig.yaml
+  - deployment.yaml
+  - service.yaml
+  - route.yaml
