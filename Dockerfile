@@ -21,6 +21,11 @@ COPY action_agent.py      .
 COPY data_preprocessing.py .
 COPY ingest.py            .
 
+# Bake in the pre-built vector store and policy documents.
+# No runtime ingest needed — chroma_db is read-only at query time.
+COPY dataset/             ./dataset/
+COPY chroma_db/           ./chroma_db/
+
 # OpenShift runs containers as a random non-root UID in group 0.
 # uid=1001, gid=0 pattern: group-readable so any arbitrary UID works.
 RUN useradd -u 1001 -r -g 0 -m -d /app appuser && \
@@ -28,9 +33,6 @@ RUN useradd -u 1001 -r -g 0 -m -d /app appuser && \
     chmod -R g=u /app
 
 USER 1001
-
-# ChromaDB and dataset are mounted at runtime
-VOLUME ["/app/chroma_db", "/app/dataset"]
 
 EXPOSE 7860
 

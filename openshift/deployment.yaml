@@ -48,9 +48,6 @@ spec:
                 name: setu-rag-config    # non-secret config (LLM_PROVIDER, MODEL, etc.)
             - secretRef:
                 name: setu-rag-secrets   # API keys (GROQ_API_KEY, JINA_API_KEY)
-          volumeMounts:
-            - name: chroma-storage
-              mountPath: /app/chroma_db
           resources:
             requests:
               memory: "1Gi"
@@ -72,7 +69,3 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 10
             failureThreshold: 3
-      volumes:
-        - name: chroma-storage
-          persistentVolumeClaim:
-            claimName: chroma-pvc
