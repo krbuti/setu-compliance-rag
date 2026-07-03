@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: setu-compliance-rag
+  namespace: setu-rag
+  labels:
+    app: setu-compliance-rag
+spec:
+  selector:
+    app: setu-compliance-rag
+  ports:
+    - name: http
+      port: 80
+      targetPort: 7860
+      protocol: TCP
+  type: LoadBalancer

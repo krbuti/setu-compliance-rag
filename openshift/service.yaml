@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: setu-compliance-rag
+  labels:
+    app: setu-compliance-rag
+spec:
+  selector:
+    app: setu-compliance-rag
+  ports:
+    - name: http
+      port: 7860
+      targetPort: 7860
+      protocol: TCP
+  type: ClusterIP    # OpenShift uses Routes (not LoadBalancer) for external access

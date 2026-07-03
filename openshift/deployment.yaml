@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: setu-compliance-rag
+  labels:
+    app: setu-compliance-rag
+  annotations:
+    image.openshift.io/triggers: >
+      [{"from":{"kind":"ImageStreamTag","name":"setu-compliance-rag:latest"},
+        "fieldPath":"spec.template.spec.containers[0].image","pause":"false"}]
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: setu-compliance-rag
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0     # zero-downtime: new pod must be ready before old is removed
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: setu-compliance-rag
+    spec:
+      # OpenShift Security Context Constraints (SCC)
+      # Do NOT set runAsUser or fsGroup — Developer Sandbox enforces a
+      # namespace-specific UID range (e.g. 1010630000-1010639999).
+      # OpenShift auto-assigns a UID; the Dockerfile uses gid=0 + chmod g=u
+      # so any arbitrary UID works.
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          # Image reference resolved from ImageStream by the annotation above
+          image: setu-compliance-rag:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 7860
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false   # Gradio writes temp files at startup
+          envFrom:
+            - configMapRef:
+                name: setu-rag-config    # non-secret config (LLM_PROVIDER, MODEL, etc.)
+            - secretRef:
+                name: setu-rag-secrets   # API keys (GROQ_API_KEY, JINA_API_KEY)
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 7860
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 7860
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 3

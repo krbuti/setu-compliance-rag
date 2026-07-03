@@ -1,0 +1,36 @@
+# Deploy everything with one command:
+#
+#   oc apply -k openshift/ -n <your-namespace>
+#
+# On Red Hat Developer Sandbox your namespace is shown at the top-right
+# of the web console (e.g. kevaljoshi-dev). Pass it via -n flag below.
+#
+# Prerequisites (run once, replacing <ns> with your namespace):
+#   oc create secret generic setu-rag-secrets \
+#       --from-literal=GROQ_API_KEY=<key> \
+#       --from-literal=JINA_API_KEY=<key> -n <ns>
+#   oc create secret generic setu-rag-github-webhook \
+#       --from-literal=WebHookSecretKey=<random-string> -n <ns>
+#
+# NOTE: project.yaml is intentionally excluded — Developer Sandbox
+# pre-assigns your project; you cannot create a new one.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ── CHANGE THIS ONE LINE to match your namespace ──────────────────────────────
+# Developer Sandbox: your namespace is shown top-right in the OCP web console
+#   e.g.  kevaljoshi-dev
+# Full OpenShift:    setu-rag  (after running: oc new-project setu-rag)
+namespace: keval-joshi-dev
+# ─────────────────────────────────────────────────────────────────────────────
+# Kustomize injects this namespace into EVERY resource below automatically.
+# You only need to change it here — not in any individual yaml file.
+
+resources:
+  - configmap.yaml
+  - imagestream.yaml
+  - buildconfig.yaml
+  - deployment.yaml
+  - service.yaml
+  - route.yaml
