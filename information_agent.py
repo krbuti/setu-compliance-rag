@@ -130,23 +130,28 @@ def _reciprocal_rank_fusion(
 
 
 def _hybrid_retrieve(
-    vs: Chroma, query: str, policy_filter: Optional[str] = None, top_n: int = 8
+    vs: Chroma, query: str, policy_filter: Optional[str] = None, top_n: int = 10
 ) -> list[Document]:
-    """BM25 + MMR dense retrieval fused with RRF."""
-    # Dense: MMR ensures diversity across the retrieved set
-    dense_kwargs = {
-        "search_type": "mmr",
-        "search_kwargs": {"k": 6, "fetch_k": 20, "lambda_mult": 0.7},
-    }
-    if policy_filter:
-        dense_kwargs["search_kwargs"]["filter"] = {"doc_name": {"$contains": policy_filter}}
+    """BM25 + dense similarity retrieval fused with RRF.
 
-    dense_results = vs.as_retriever(**dense_kwargs).invoke(query)
+    Uses similarity (not MMR) for the dense leg — MMR's diversity penalty
+    was pulling in off-topic policies and drowning out the correct one.
+    BM25 handles keyword diversity naturally (different term matches = different docs).
+    ChromaDB 1.5.x $contains filter returns 0 results — do not use metadata filtering.
+    """
+    dense_retriever = vs.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": 10},
+    )
+    dense_results = dense_retriever.invoke(query)
 
-    # Sparse: BM25 keyword retrieval
-    sparse_results = _bm25.invoke(query) if _bm25 else []
+    # BM25 with wider k so keyword matches dominate RRF when dense drifts
+    if _bm25:
+        _bm25.k = 12
+        sparse_results = _bm25.invoke(query)
+    else:
+        sparse_results = []
 
-    # Fuse with RRF
     fused = _reciprocal_rank_fusion(dense_results, sparse_results)
     return fused[:top_n]
 
@@ -292,12 +297,12 @@ def get_information(vs: Chroma, query: str) -> str:
     )
     initial_answer = llm.invoke(answer_prompt).content
 
-    # Reflection only when answer contains specifics that could be hallucinated
+    # Reflection only for things that can't come from context: invented emails or
+    # policy codes. Numbers/dates are allowed — they come from the retrieved chunks.
     _needs_reflect = re.search(
-        r'\d+\s*(day|week|month|year|%|euro|€)s?'
-        r'|@\w+\.\w+'          # email-like
-        r'|SETU-[A-Z0-9-]+'   # policy code
-        r'|section\s+\d',
+        r'@\w+\.\w+'          # fabricated email address
+        r'|SETU-[A-Z]{2,}-\d+' # invented numeric policy code
+        r'|\bSETU-\d{3,}\b',   # another invented code pattern
         initial_answer, re.IGNORECASE
     )
     if _needs_reflect:
