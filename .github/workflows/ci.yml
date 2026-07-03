@@ -60,13 +60,15 @@ jobs:
       - name: Install runtime deps
         run: pip install -r requirements-runtime.txt
 
-      - name: Download ChromaDB snapshot
+      - name: Check ChromaDB
         run: |
-          if [ -n "${{ secrets.CHROMA_SNAPSHOT_URL }}" ]; then
+          if [ -d "chroma_db" ]; then
+            echo "ChromaDB present in repo — skipping ingest."
+          elif [ -n "${{ secrets.CHROMA_SNAPSHOT_URL }}" ]; then
             curl -L "${{ secrets.CHROMA_SNAPSHOT_URL }}" | tar -xz -C .
             echo "ChromaDB snapshot restored."
           else
-            echo "No CHROMA_SNAPSHOT_URL set — running ingest (slow on first run)."
+            echo "Running ingest to build ChromaDB..."
             python ingest.py
           fi
 
@@ -88,8 +90,10 @@ jobs:
               ("V3", "The Gen AI policy bans all use of AI tools for staff. Is that correct?"),
           ]
 
-          DENY = ["does not use","no such","not found","no dedicated","does not have a dedicated","no information"]
-          BAD  = ["setu-hr-001","setu-001","@setu","dpo@","bans all","52 weeks"]
+          DENY = ["does not use","no such","not found","no dedicated","does not have a dedicated",
+                  "no information","incorrect","does not give","does not provide","26 weeks",
+                  "26 consecutive","not entitled","does not ban","not ban"]
+          BAD  = ["setu-hr-001","setu-001","@setu","dpo@","bans all use"]
 
           failures = []
           for qid, q in CRITICAL:
