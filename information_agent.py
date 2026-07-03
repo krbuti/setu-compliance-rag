@@ -293,7 +293,7 @@ def get_information(vs: Chroma, query: str) -> str:
         "Only name a policy document if it is listed in the [Source: ...] tags below.\n\n"
         f"Policy Excerpts{filter_note}:\n{context}\n\n"
         f"Question: {query}\n\n"
-        "Answer (2-4 sentences, cite the source policy):"
+        "Answer (2-3 sentences max, cite the source policy):"
     )
     initial_answer = llm.invoke(answer_prompt).content
 
