@@ -37,7 +37,7 @@ GROQ_MODELS = {
 # Cerebras models (wafer-scale fast inference, OpenAI-compatible)
 CEREBRAS_MODELS = {
     "llama-3.1-8b":  "llama3.1-8b",
-    "llama-3.3-70b": "llama-3.3-70b",
+    "llama-3.3-70b": "llama3.3-70b",
 }
 CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
 
