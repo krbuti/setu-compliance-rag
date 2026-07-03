@@ -34,6 +34,9 @@ from config.llm_config import get_embeddings, get_llm
 CHROMA_DIR = Path(__file__).parent / "chroma_db"
 COLLECTION  = "setu_compliance"
 
+# SETU does not use numeric policy codes. Any pattern like SETU-HR-001 is invented.
+_FAKE_CODE_RE = re.compile(r'\bSETU-[A-Z]{2,}-\d+\b|\bSETU-\d{3,}\b', re.IGNORECASE)
+
 # Known policy document names for self-query detection
 KNOWN_POLICIES = [
     "Data Protection", "Data Retention", "Data Governance",
@@ -191,21 +194,30 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
     Returns a corrected answer when unsupported claims are found, or the original
     answer unchanged if everything checks out.
     """
+    # Extract source names actually present in context
+    import re as _re
+    source_names = _re.findall(r'\[Source:\s*([^\]]+)\]', context)
+    sources_list = "\n".join(f"  - {s.strip()}" for s in source_names) or "  (none retrieved)"
+
     reflect_prompt = (
-        "You are a fact-checker for a university policy assistant.\n\n"
-        "Retrieved policy excerpts (ground truth):\n"
+        "You are a strict fact-checker for a university policy assistant.\n\n"
+        "The ONLY policy documents retrieved for this query are:\n"
+        f"{sources_list}\n\n"
+        "Retrieved excerpts (ground truth):\n"
         f"{context}\n\n"
         "Draft answer to verify:\n"
         f"{initial_answer}\n\n"
-        "Check the draft answer against the excerpts ONLY. Identify:\n"
-        "1. Policy names or reference codes NOT present in the excerpts "
-        "(e.g. invented codes like SETU-001, SETU-HR-002)\n"
-        "2. Specific numbers, dates, or entitlements NOT traceable to the excerpts\n"
-        "3. Any claim that contradicts or goes beyond what the excerpts state\n\n"
-        "Rules:\n"
-        "- If the answer is fully grounded: reply exactly: VERIFIED: <original answer unchanged>\n"
-        "- If it contains unsupported claims: reply exactly: REVISED: <corrected answer "
-        "with all unsupported claims removed or qualified as 'refer to the full policy'>\n"
+        "Check the draft answer. Flag it as needing REVISION if ANY of these are true:\n"
+        "1. It mentions a policy reference code (e.g. SETU-001, SETU-HR-002, SETU-AC-005) "
+        "— SETU does not use numeric policy codes; any such code is invented\n"
+        "2. It names a policy document NOT in the source list above\n"
+        "3. It states a specific number, date, or entitlement NOT present word-for-word in the excerpts\n"
+        "4. It contains placeholder text like [Your Name], [Staff Member], [Date]\n"
+        "5. It describes what a non-existent policy 'says' instead of stating the policy was not found\n\n"
+        "If the answer passes all checks: reply VERIFIED: <original answer unchanged>\n"
+        "If it fails any check: reply REVISED: <corrected answer — remove invented codes/names, "
+        "replace unsupported facts with 'refer to the full policy document', "
+        "remove any placeholder text>\n"
         "Output only VERIFIED or REVISED, nothing else."
     )
     try:
@@ -224,6 +236,15 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
 
 
 def get_information(vs: Chroma, query: str) -> str:
+    # SETU does not use numeric policy reference codes — reject immediately
+    if _FAKE_CODE_RE.search(query):
+        return (
+            "SETU does not use numeric policy reference codes. "
+            "Policy documents are identified by their full title (e.g. 'Sick Leave Policy', "
+            "'Parental Leave Policy'). Please search the SETU policy library by topic name, "
+            "or contact HR with the specific subject area you need."
+        )
+
     llm             = get_llm()
     policy_filter   = _detect_policy_filter(query)
     queries         = _lightweight_expand(query, llm)
@@ -258,11 +279,16 @@ def get_information(vs: Chroma, query: str) -> str:
         "You are a SETU policy information assistant.\n"
         "Answer the question using ONLY the policy excerpts below.\n"
         "Always name the policy document (shown as [Source: ...]) in your answer.\n"
-        "If the policy excerpts are relevant but do not give a specific number or date, "
-        "explain what the policy DOES say (e.g. 'entitlements are set in individual contracts' "
-        "or 'refer to the relevant circular') — do NOT say the information is absent.\n"
-        "Only say 'This is not covered in the retrieved policies.' if the excerpts are "
-        "completely unrelated to the question.\n\n"
+        "If the excerpts are on-topic but lack a specific number or date, explain what "
+        "the policy DOES say (e.g. 'entitlements are set in individual contracts') — "
+        "do NOT say the information is absent.\n"
+        "IMPORTANT: If the excerpts do NOT directly address the topic in the question "
+        "(e.g. the question asks about remote working or hybrid schedules but the excerpts "
+        "cover unrelated subjects), say clearly: 'No dedicated SETU policy on [topic] was "
+        "found in the retrieved documents.' Do NOT extrapolate or infer from unrelated policies.\n"
+        "NEVER invent contact details (email addresses, phone numbers, names). "
+        "If asked for contact info, say 'contact the relevant SETU office directly' — do not fabricate.\n"
+        "Only name a policy document if it is listed in the [Source: ...] tags below.\n\n"
         f"Policy Excerpts{filter_note}:\n{context}\n\n"
         f"Question: {query}\n\n"
         "Answer (2-4 sentences, cite the source policy):"

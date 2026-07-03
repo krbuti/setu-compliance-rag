@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git/
+.github/
+*.pdf
+build_dataset.py
+dataset/
+chroma_db/
+probe_results.json
+eval_results.json
+*.log
+.gradio/

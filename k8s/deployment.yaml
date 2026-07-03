@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: setu-compliance-rag
+  namespace: setu-rag
+  labels:
+    app: setu-compliance-rag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: setu-compliance-rag
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0        # zero-downtime: always keep old pod alive until new is ready
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: setu-compliance-rag
+    spec:
+      containers:
+        - name: app
+          image: setu-compliance-rag:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7860
+          env:
+            - name: LLM_PROVIDER
+              value: "groq"
+            - name: LLM_MODEL
+              value: "llama-3.1-8b"
+            - name: EMBEDDINGS_PROVIDER
+              value: "jina"
+            - name: EMBEDDINGS_MODEL
+              value: "jina-embeddings-v2-base-en"
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: setu-rag-secrets
+                  key: GROQ_API_KEY
+            - name: JINA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: setu-rag-secrets
+                  key: JINA_API_KEY
+          volumeMounts:
+            - name: chroma-storage
+              mountPath: /app/chroma_db
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 7860
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 7860
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: chroma-storage
+          persistentVolumeClaim:
+            claimName: chroma-pvc
