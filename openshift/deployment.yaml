@@ -2,12 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: setu-compliance-rag
-  namespace: setu-rag
   labels:
     app: setu-compliance-rag
   annotations:
     image.openshift.io/triggers: >
-      [{"from":{"kind":"ImageStreamTag","name":"setu-compliance-rag:latest","namespace":"setu-rag"},
+      [{"from":{"kind":"ImageStreamTag","name":"setu-compliance-rag:latest"},
         "fieldPath":"spec.template.spec.containers[0].image","pause":"false"}]
 spec:
   replicas: 2

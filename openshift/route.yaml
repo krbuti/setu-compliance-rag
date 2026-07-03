@@ -5,7 +5,6 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: setu-compliance-rag
-  namespace: setu-rag
   labels:
     app: setu-compliance-rag
 spec:

@@ -2,7 +2,6 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: chroma-pvc
-  namespace: setu-rag
 spec:
   accessModes:
     - ReadWriteOnce
