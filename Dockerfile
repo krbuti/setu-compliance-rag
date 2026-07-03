@@ -26,6 +26,18 @@ COPY ingest.py            .
 COPY dataset/             ./dataset/
 COPY chroma_db/           ./chroma_db/
 
+# Set HF_HOME inside /app so the model cache lands in a writable location
+# for OpenShift's arbitrary non-root UID (which cannot write to /.cache).
+ENV HF_HOME=/app/.cache \
+    HOME=/app \
+    LLM_PROVIDER=groq \
+    LLM_MODEL=llama-3.1-8b \
+    EMBEDDINGS_PROVIDER=jina \
+    EMBEDDINGS_MODEL=jina-embeddings-v2-base-en
+
+# Pre-download cross-encoder reranker during build (no outbound calls at runtime).
+RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+
 # OpenShift runs containers as a random non-root UID in group 0.
 # uid=1001, gid=0 pattern: group-readable so any arbitrary UID works.
 RUN useradd -u 1001 -r -g 0 -m -d /app appuser && \
@@ -33,12 +45,5 @@ RUN useradd -u 1001 -r -g 0 -m -d /app appuser && \
     chmod -R g=u /app
 
 USER 1001
-
-EXPOSE 7860
-
-ENV LLM_PROVIDER=groq \
-    LLM_MODEL=llama-3.1-8b \
-    EMBEDDINGS_PROVIDER=jina \
-    EMBEDDINGS_MODEL=jina-embeddings-v2-base-en
 
 CMD ["python", "app_gradio.py"]
