@@ -7,8 +7,6 @@ __pycache__/
 .github/
 *.pdf
 build_dataset.py
-dataset/
-chroma_db/
 probe_results.json
 eval_results.json
 *.log
