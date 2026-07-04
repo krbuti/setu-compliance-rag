@@ -94,37 +94,72 @@ class MetricsCollector:
 collector = MetricsCollector()
 
 
-# ── Answer cache ──────────────────────────────────────────────────────────────
+# ── Answer cache (Redis-backed, in-memory fallback) ───────────────────────────
 
 class AnswerCache:
-    """Exact-match TTL cache for repeated queries (demo-friendly)."""
+    """Exact-match TTL cache backed by Upstash Redis when configured.
 
-    def __init__(self, ttl_minutes: int = 60, max_size: int = 200):
-        self._data: dict[str, tuple[str, datetime]] = {}
-        self._ttl = timedelta(minutes=ttl_minutes)
-        self._max_size = max_size
+    Falls back to an in-memory dict when UPSTASH_REDIS_URL is not set.
+    Redis mode survives pod restarts and is shared across HPA replicas.
+    Set UPSTASH_REDIS_URL + UPSTASH_REDIS_TOKEN via oc set env to enable.
+    """
+    _PREFIX = "setu:answer:"
+
+    def __init__(self, ttl_seconds: int = 3600, max_local: int = 200):
+        self._ttl = ttl_seconds
+        self._max_local = max_local
         self._lock = threading.Lock()
+        self._local: dict[str, tuple[str, datetime]] = {}
+        self._r = None
+
+        redis_url = os.getenv("UPSTASH_REDIS_URL")
+        if redis_url:
+            try:
+                import redis as _redis
+                token = os.getenv("UPSTASH_REDIS_TOKEN", "")
+                self._r = _redis.from_url(
+                    redis_url,
+                    password=token or None,
+                    decode_responses=True,
+                    socket_connect_timeout=3,
+                )
+                self._r.ping()
+                print("[OK] Redis answer cache connected")
+            except Exception as exc:
+                print(f"[WARN] Redis unavailable ({exc}) — using in-memory cache")
+                self._r = None
 
     def _key(self, query: str) -> str:
-        return hashlib.md5(query.strip().lower().encode()).hexdigest()
+        return self._PREFIX + hashlib.md5(query.strip().lower().encode()).hexdigest()
 
     def get(self, query: str) -> str | None:
         k = self._key(query)
+        if self._r:
+            try:
+                return self._r.get(k)
+            except Exception:
+                pass
         with self._lock:
-            if k in self._data:
-                answer, ts = self._data[k]
-                if datetime.now() - ts < self._ttl:
+            if k in self._local:
+                answer, ts = self._local[k]
+                if datetime.now() - ts < timedelta(seconds=self._ttl):
                     return answer
-                del self._data[k]
+                del self._local[k]
         return None
 
     def set(self, query: str, answer: str) -> None:
         k = self._key(query)
+        if self._r:
+            try:
+                self._r.setex(k, self._ttl, answer)
+                return
+            except Exception:
+                pass
         with self._lock:
-            if len(self._data) >= self._max_size:
-                oldest = min(self._data, key=lambda x: self._data[x][1])
-                del self._data[oldest]
-            self._data[k] = (answer, datetime.now())
+            if len(self._local) >= self._max_local:
+                oldest = min(self._local, key=lambda x: self._local[x][1])
+                del self._local[oldest]
+            self._local[k] = (answer, datetime.now())
 
 
 _cache = AnswerCache()
