@@ -129,6 +129,23 @@ class AnswerCache:
 
 _cache = AnswerCache()
 
+
+def _parse_history(raw_history) -> list[tuple[str, str]]:
+    """Convert Gradio ChatInterface history to (user, assistant) pairs.
+
+    Strips the disclaimer suffix from assistant messages so it doesn't
+    pollute the context window sent to the LLM.
+    """
+    pairs = []
+    for item in (raw_history or []):
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            user_msg = str(item[0] or "").strip()
+            asst_msg = str(item[1] or "").split("\n\n---\n")[0].strip()
+            if user_msg and asst_msg:
+                pairs.append((user_msg, asst_msg))
+    return pairs[-3:]  # keep last 3 turns max
+
+
 _DISCLAIMER = (
     "\n\n---\n*Disclaimer: This is an academic AI prototype. "
     "Verify all information with official SETU policy documents or HR before acting on it.*"
@@ -140,23 +157,27 @@ def chat(message: str, history: list):
         yield "Please enter a question about SETU policies."
         return
 
-    # Cache hit → instant reply (no latency recorded as 0ms cache hit)
-    cached = _cache.get(message)
-    if cached:
-        collector.record(message, cached, 0)
-        yield cached + _DISCLAIMER
-        return
+    parsed_history = _parse_history(history)
+
+    # Cache only for standalone queries (no conversation context)
+    if not parsed_history:
+        cached = _cache.get(message)
+        if cached:
+            collector.record(message, cached, 0)
+            yield cached + _DISCLAIMER
+            return
 
     t0 = time.time()
     try:
         from main_agent import handle_query_stream
         partial = ""
-        for chunk in handle_query_stream(message):
+        for chunk in handle_query_stream(message, parsed_history):
             partial += chunk
             yield partial
         latency = (time.time() - t0) * 1000
         collector.record(message, partial, latency)
-        _cache.set(message, partial)
+        if not parsed_history:
+            _cache.set(message, partial)
         yield partial + _DISCLAIMER
     except Exception:
         collector.record(message, "", (time.time() - t0) * 1000, error=True)

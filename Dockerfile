@@ -34,7 +34,9 @@ ENV HF_HOME=/app/.cache \
     LLM_PROVIDER=groq \
     LLM_MODEL=llama-3.1-8b \
     EMBEDDINGS_PROVIDER=jina \
-    EMBEDDINGS_MODEL=jina-embeddings-v2-base-en
+    EMBEDDINGS_MODEL=jina-embeddings-v2-base-en \
+    LANGCHAIN_TRACING_V2=false \
+    LANGCHAIN_PROJECT=setu-compliance-rag
 
 # Pre-create HF cache directory so the cross-encoder downloads here at first startup.
 # Build-time download is skipped — HuggingFace rate-limits unauthenticated build workers.
