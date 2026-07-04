@@ -168,15 +168,55 @@ def _hybrid_retrieve(
 
 def _cross_encode_rerank(
     query: str, candidates: list[Document], top_k: int = 3
-) -> list[Document]:
-    """Re-rank candidates with a local cross-encoder. Falls back to RRF order."""
+) -> tuple[list[Document], list[float]]:
+    """Re-rank candidates with a local cross-encoder. Returns (docs, scores)."""
     reranker = _reranker
     if reranker is None:
-        return candidates[:top_k]
+        return candidates[:top_k], [0.0] * min(top_k, len(candidates))
     pairs  = [(query, doc.page_content[:512]) for doc in candidates]
     scores = reranker.predict(pairs)
     ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
-    return [doc for _, doc in ranked[:top_k]]
+    top    = ranked[:top_k]
+    return [doc for _, doc in top], [float(s) for s, _ in top]
+
+
+def _reason_and_refine(
+    query: str, docs: list[Document], top_score: float, llm
+) -> str | None:
+    """ReAct reasoning step: generate a better search query when retrieval looks weak.
+
+    Uses the cross-encoder top score as a retrieval-quality signal.
+    ms-marco-MiniLM scores: >0 = relevant, <0 = poor match.
+    Only fires one extra LLM call, and only when the top score is below threshold.
+    Returns a refined query string, or None if context looks sufficient.
+    """
+    if top_score > 0.0:
+        return None
+
+    preview = "\n\n".join(
+        f"[{doc.metadata.get('doc_name', '?')}]: {doc.page_content[:200]}"
+        for doc in docs[:3]
+    )
+    prompt = (
+        f"Question: {query}\n\n"
+        f"Retrieved passages:\n{preview}\n\n"
+        "The passages may not directly answer the question. "
+        "Write ONE better search query to find the specific policy information. "
+        "Be more specific — include key terms like policy names, leave types, "
+        "entitlements, or legal concepts. "
+        "Return ONLY the new query with no explanation. "
+        "If the passages are actually on-topic, return exactly: SUFFICIENT"
+    )
+    try:
+        result = llm.invoke(prompt).content.strip()
+        if not result or result.upper().startswith("SUFFICIENT"):
+            return None
+        if result.lower() == query.lower():
+            return None
+        print(f"[ReAct] score={top_score:.2f} → refined: '{result[:70]}'")
+        return result
+    except Exception:
+        return None
 
 
 def _upgrade_to_parent(docs: list[Document]) -> list[Document]:
@@ -366,7 +406,16 @@ def _run_pipeline(vs: Chroma, query: str) -> tuple[str, list[Document]]:
             seen.add(key)
             unique.append(doc)
 
-    top5 = _cross_encode_rerank(query, unique, top_k=5)
+    top5, scores = _cross_encode_rerank(query, unique, top_k=5)
+
+    # ReAct loop: if top cross-encoder score signals a weak match, reason about
+    # a better query and retry retrieval once. Adds ~2-4s only when needed.
+    if scores:
+        refined = _reason_and_refine(query, top5, max(scores), llm)
+        if refined:
+            extra = _hybrid_retrieve(vs, refined, policy_filter)
+            merged = list({doc.page_content[:120]: doc for doc in top5 + extra}.values())
+            top5, scores = _cross_encode_rerank(query, merged, top_k=5)
 
     context_parts = []
     for doc in top5:
@@ -404,6 +453,17 @@ def _run_pipeline(vs: Chroma, query: str) -> tuple[str, list[Document]]:
 def get_information(vs: Chroma, query: str) -> str:
     answer, _ = _run_pipeline(vs, query)
     return answer
+
+
+def get_information_with_sources(vs: Chroma, query: str) -> tuple[str, list[str]]:
+    """Returns (answer, deduplicated_source_policy_names) for the REST API."""
+    answer, docs = _run_pipeline(vs, query)
+    sources = list(dict.fromkeys(
+        doc.metadata.get("doc_name", "")
+        for doc in docs
+        if doc.metadata.get("doc_name")
+    ))
+    return answer, sources
 
 
 def get_information_with_context(vs: Chroma, query: str) -> tuple[str, list[str]]:

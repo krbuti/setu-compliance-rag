@@ -12,8 +12,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import gradio as gr
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel, Field
 import uvicorn
 from dotenv import load_dotenv
 
@@ -219,19 +220,98 @@ def chat(message: str, history: list):
         raise
 
 
+# ── Pydantic schemas ──────────────────────────────────────────────────────────
+
+class QueryRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=1000,
+                       description="Policy question to answer")
+    conversation_id: str | None = Field(None,
+                       description="Optional session ID for future multi-turn support")
+
+
+class QueryResponse(BaseModel):
+    answer: str = Field(..., description="Grounded answer citing the source policy")
+    sources: list[str] = Field(default_factory=list,
+                       description="Policy document names cited in the answer")
+    latency_ms: int = Field(..., description="End-to-end response time in milliseconds")
+    cached: bool = Field(..., description="True if answer was served from cache")
+
+
+class HealthResponse(BaseModel):
+    status: str
+    uptime_seconds: int
+    total_queries: int
+    avg_latency_ms: int
+
+
 # ── FastAPI app + routes ──────────────────────────────────────────────────────
 
-app = FastAPI(title="SETU Compliance RAG")
+app = FastAPI(
+    title="SETU Compliance RAG API",
+    description="Multi-agent RAG over 48 SETU institutional policy documents.",
+    version="1.0.0",
+)
 
 _DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
 
 
-@app.get("/metrics", response_class=JSONResponse)
+@app.get("/health", response_model=HealthResponse, tags=["system"])
+async def health_check():
+    """Liveness + readiness check — returns current uptime and query stats."""
+    m = collector.to_dict()
+    return HealthResponse(
+        status=m["status"],
+        uptime_seconds=m["uptime_seconds"],
+        total_queries=m["total_queries"],
+        avg_latency_ms=m["avg_latency_ms"],
+    )
+
+
+@app.post("/api/query", response_model=QueryResponse, tags=["query"])
+async def api_query(request: QueryRequest):
+    """Query the SETU compliance RAG system.
+
+    Returns a grounded policy answer with the source documents cited and
+    end-to-end latency. Identical queries within 1 hour are served from cache.
+    """
+    cached_answer = _cache.get(request.query)
+    if cached_answer:
+        collector.record(request.query, cached_answer, 0)
+        from information_agent import KNOWN_POLICIES
+        sources = [p for p in KNOWN_POLICIES if p.lower() in cached_answer.lower()]
+        return QueryResponse(
+            answer=cached_answer,
+            sources=list(dict.fromkeys(sources)),
+            latency_ms=0,
+            cached=True,
+        )
+
+    t0 = time.perf_counter()
+    try:
+        from information_agent import load_vectorstore, get_information_with_sources
+        vs = load_vectorstore()
+        answer, sources = get_information_with_sources(vs, request.query)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    latency = round((time.perf_counter() - t0) * 1000)
+    collector.record(request.query, answer, latency)
+    _cache.set(request.query, answer)
+
+    return QueryResponse(
+        answer=answer,
+        sources=sources,
+        latency_ms=latency,
+        cached=False,
+    )
+
+
+@app.get("/metrics", response_class=JSONResponse, tags=["system"])
 async def get_metrics():
     return collector.to_dict()
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse, tags=["system"])
 async def get_dashboard():
     return _DASHBOARD_PATH.read_text(encoding="utf-8")
 
