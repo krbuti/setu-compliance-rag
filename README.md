@@ -1,3 +1,5 @@
+<img width="1024" height="768" alt="image" src="https://github.com/user-attachments/assets/478a4325-1ea4-4ad3-8596-69d1f252ee3f" />
+
 # SETU Compliance Policy RAG Chatbot
 
 ![Python](https://img.shields.io/badge/Python-3.14-blue?logo=python)
