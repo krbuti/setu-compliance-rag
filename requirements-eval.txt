@@ -1,0 +1,10 @@
+# Evaluation dependencies — not needed at runtime.
+# Install in a Linux environment (WSL, Docker shell, or Google Colab):
+#   pip install -r requirements-eval.txt
+#
+# On Windows: scikit-network (a ragas dep) has no pre-built wheel and
+# requires a C compiler. Use WSL2 or run via: docker run ...
+
+-r requirements-runtime.txt
+ragas>=0.2.0
+datasets

@@ -252,23 +252,25 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
         return initial_answer
 
 
-def get_information(vs: Chroma, query: str) -> str:
-    # SETU does not use numeric policy reference codes — reject immediately
+def _run_pipeline(vs: Chroma, query: str) -> tuple[str, list[Document]]:
+    """Core RAG pipeline. Returns (answer, top_reranked_docs).
+
+    Separated from get_information() so evaluation code can access the
+    retrieved contexts without running retrieval twice.
+    """
     if _FAKE_CODE_RE.search(query):
         return (
             "SETU does not use numeric policy reference codes. "
             "Policy documents are identified by their full title (e.g. 'Sick Leave Policy', "
             "'Parental Leave Policy'). Please search the SETU policy library by topic name, "
             "or contact HR with the specific subject area you need."
-        )
+        ), []
 
     llm           = get_llm()
     policy_filter = _detect_policy_filter(query)
 
-    # Single-pass hybrid retrieval (no expansion — saves 1 LLM call + embedding)
     all_candidates = _hybrid_retrieve(vs, query, policy_filter)
 
-    # Deduplicate by content
     seen, unique = set(), []
     for doc in all_candidates:
         key = doc.page_content[:120]
@@ -276,14 +278,10 @@ def get_information(vs: Chroma, query: str) -> str:
             seen.add(key)
             unique.append(doc)
 
-    # Cross-encoder rerank -> top 5 then use children directly
-    # (parent-chunk upgrade skipped: stored parent metadata may point to wrong sections)
     top5 = _cross_encode_rerank(query, unique, top_k=5)
-    context_docs = top5
 
-    # Build cited context block
     context_parts = []
-    for doc in context_docs:
+    for doc in top5:
         source = doc.metadata.get("doc_name", "Unknown Policy")
         context_parts.append(f"[Source: {source}]\n{doc.page_content}")
     context = "\n\n---\n\n".join(context_parts)
@@ -309,17 +307,26 @@ def get_information(vs: Chroma, query: str) -> str:
     )
     initial_answer = llm.invoke(answer_prompt).content
 
-    # Reflection only for things that can't come from context: invented emails or
-    # policy codes. Numbers/dates are allowed — they come from the retrieved chunks.
     _needs_reflect = re.search(
-        r'@\w+\.\w+'          # fabricated email address
-        r'|SETU-[A-Z]{2,}-\d+' # invented numeric policy code
-        r'|\bSETU-\d{3,}\b',   # another invented code pattern
+        r'@\w+\.\w+'
+        r'|SETU-[A-Z]{2,}-\d+'
+        r'|\bSETU-\d{3,}\b',
         initial_answer, re.IGNORECASE
     )
     if _needs_reflect:
-        return _reflect_and_verify(query, context, initial_answer, llm)
-    return initial_answer
+        return _reflect_and_verify(query, context, initial_answer, llm), top5
+    return initial_answer, top5
+
+
+def get_information(vs: Chroma, query: str) -> str:
+    answer, _ = _run_pipeline(vs, query)
+    return answer
+
+
+def get_information_with_context(vs: Chroma, query: str) -> tuple[str, list[str]]:
+    """Returns (answer, retrieved_context_strings) for RAGAS evaluation."""
+    answer, docs = _run_pipeline(vs, query)
+    return answer, [doc.page_content for doc in docs]
 
 
 if __name__ == "__main__":
