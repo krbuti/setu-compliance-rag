@@ -5,8 +5,10 @@ Live dashboard: /dashboard    Metrics API: /metrics
 """
 import os
 import time
+import hashlib
 import threading
 from collections import deque
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import gradio as gr
@@ -91,20 +93,71 @@ class MetricsCollector:
 
 collector = MetricsCollector()
 
+
+# ── Answer cache ──────────────────────────────────────────────────────────────
+
+class AnswerCache:
+    """Exact-match TTL cache for repeated queries (demo-friendly)."""
+
+    def __init__(self, ttl_minutes: int = 60, max_size: int = 200):
+        self._data: dict[str, tuple[str, datetime]] = {}
+        self._ttl = timedelta(minutes=ttl_minutes)
+        self._max_size = max_size
+        self._lock = threading.Lock()
+
+    def _key(self, query: str) -> str:
+        return hashlib.md5(query.strip().lower().encode()).hexdigest()
+
+    def get(self, query: str) -> str | None:
+        k = self._key(query)
+        with self._lock:
+            if k in self._data:
+                answer, ts = self._data[k]
+                if datetime.now() - ts < self._ttl:
+                    return answer
+                del self._data[k]
+        return None
+
+    def set(self, query: str, answer: str) -> None:
+        k = self._key(query)
+        with self._lock:
+            if len(self._data) >= self._max_size:
+                oldest = min(self._data, key=lambda x: self._data[x][1])
+                del self._data[oldest]
+            self._data[k] = (answer, datetime.now())
+
+
+_cache = AnswerCache()
+
 _DISCLAIMER = (
     "\n\n---\n*Disclaimer: This is an academic AI prototype. "
     "Verify all information with official SETU policy documents or HR before acting on it.*"
 )
 
 
-def chat(message: str, history: list) -> str:
+def chat(message: str, history: list):
     if not message.strip():
-        return "Please enter a question about SETU policies."
+        yield "Please enter a question about SETU policies."
+        return
+
+    # Cache hit → instant reply (no latency recorded as 0ms cache hit)
+    cached = _cache.get(message)
+    if cached:
+        collector.record(message, cached, 0)
+        yield cached + _DISCLAIMER
+        return
+
     t0 = time.time()
     try:
-        answer = handle_query(message)
-        collector.record(message, answer, (time.time() - t0) * 1000)
-        return answer + _DISCLAIMER
+        from main_agent import handle_query_stream
+        partial = ""
+        for chunk in handle_query_stream(message):
+            partial += chunk
+            yield partial
+        latency = (time.time() - t0) * 1000
+        collector.record(message, partial, latency)
+        _cache.set(message, partial)
+        yield partial + _DISCLAIMER
     except Exception:
         collector.record(message, "", (time.time() - t0) * 1000, error=True)
         raise

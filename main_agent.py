@@ -9,7 +9,8 @@ Graph:
 Run interactively:
     python main_agent.py
 """
-from typing import TypedDict
+import concurrent.futures
+from typing import TypedDict, Iterator
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -67,26 +68,20 @@ def action_node(state: PolicyState) -> PolicyState:
     return {"action_response": result}
 
 
-def combine_node(state: PolicyState) -> PolicyState:
-    llm   = get_llm()
-    info  = state.get("info_response", "")
-    action = state.get("action_response", "")
-    query = state["user_query"]
+_NO_INFO_REPLY = (
+    "I'm sorry, I wasn't able to find relevant information in SETU's "
+    "policy documents for your query. Please contact the relevant SETU "
+    "office directly."
+)
 
-    if not info and not action:
-        return {"final_response": (
-            "I'm sorry, I wasn't able to find relevant information in SETU's "
-            "policy documents for your query. Please contact the relevant SETU "
-            "office directly."
-        )}
 
+def _combine_prompt(query: str, info: str, action: str) -> str:
     sections = []
     if info:
         sections.append(f"Policy Information:\n{info}")
     if action:
         sections.append(f"Recommended Next Steps:\n{action}")
-
-    prompt = (
+    return (
         "You are a SETU policy advisor answering a chat message.\n"
         "Rules:\n"
         "- Answer in plain prose, 2-4 sentences max\n"
@@ -99,7 +94,15 @@ def combine_node(state: PolicyState) -> PolicyState:
         f'Question: "{query}"\n\n'
         + "\n\n".join(sections)
     )
-    final = llm.invoke(prompt).content
+
+
+def combine_node(state: PolicyState) -> PolicyState:
+    info  = state.get("info_response", "")
+    action = state.get("action_response", "")
+    query = state["user_query"]
+    if not info and not action:
+        return {"final_response": _NO_INFO_REPLY}
+    final = get_llm().invoke(_combine_prompt(query, info, action)).content
     return {"final_response": final}
 
 
@@ -124,6 +127,40 @@ app = workflow.compile()
 def handle_query(message: str) -> str:
     result = app.invoke({"user_query": message})
     return result["final_response"]
+
+
+def handle_query_stream(message: str) -> Iterator[str]:
+    """Streaming variant: runs triage+retrieval then streams the combine answer.
+
+    Triage is sequential (fast, ~1 LLM call). Information and action nodes
+    run in parallel threads. The final combine LLM call streams tokens back
+    to the caller so the Gradio UI updates incrementally.
+    """
+    state: PolicyState = {
+        "user_query": message,
+        "triage_result": {},
+        "info_response": "",
+        "action_response": "",
+        "final_response": "",
+    }
+    state.update(triage_node(state))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        info_fut = executor.submit(information_node, dict(state))
+        action_fut = executor.submit(action_node, dict(state))
+        state.update(info_fut.result())
+        state.update(action_fut.result())
+
+    info = state.get("info_response", "")
+    action = state.get("action_response", "")
+
+    if not info and not action:
+        yield _NO_INFO_REPLY
+        return
+
+    for chunk in get_llm().stream(_combine_prompt(message, info, action)):
+        if chunk.content:
+            yield chunk.content
 
 
 # ── CLI loop ──────────────────────────────────────────────────────────────────
