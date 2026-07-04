@@ -252,6 +252,89 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
         return initial_answer
 
 
+def _factcorrect(query: str, answer: str, docs: list[Document], llm) -> str:
+    """FactCorrector-inspired post-hoc claim verification (3 LLM calls max).
+
+    Inspired by: FactCorrector — A Graph-Inspired Approach to Long-Form
+    Factuality Correction of LLMs (IBM Research, ACL 2026).
+
+    Pipeline:
+      1. Atomize the answer into atomic claims (1 LLM call)
+      2. Batch-check all claims against the retrieved context in one prompt
+         (1 LLM call — cheaper than one call per claim)
+      3. Rewrite removing unsupported claims (1 LLM call, only if needed)
+
+    Replaces the selective _reflect_and_verify trigger (emails/codes only)
+    with systematic checking on every response.
+    """
+    if not answer or len(answer.strip()) < 20:
+        return answer
+
+    ctx_text = "\n---\n".join(
+        f"[{doc.metadata.get('doc_name', 'Policy')}]\n{doc.page_content[:400]}"
+        for doc in docs[:5]
+    )
+
+    # Step 1 — atomize
+    try:
+        claims_raw = llm.invoke(
+            "Break this answer into atomic claims, one per line. "
+            "Each claim must be a single verifiable statement. "
+            "Output only the numbered list, nothing else.\n\n"
+            f"Answer: {answer}"
+        ).content.strip()
+    except Exception:
+        return answer
+
+    claims = [
+        c.strip().lstrip("•-0123456789.) ")
+        for c in claims_raw.split("\n")
+        if c.strip() and len(c.strip()) > 8
+    ]
+    if not claims:
+        return answer
+
+    # Step 2 — batch check all claims in one call
+    numbered = "\n".join(f"{i+1}. {c}" for i, c in enumerate(claims))
+    try:
+        check = llm.invoke(
+            f"Policy context:\n{ctx_text}\n\n"
+            f"Claims to verify:\n{numbered}\n\n"
+            "List the numbers of claims NOT directly supported by the context above. "
+            "Reply with comma-separated numbers (e.g. '2,4') or 'none' if all are supported. "
+            "Numbers only — no explanation."
+        ).content.strip().lower()
+    except Exception:
+        return answer
+
+    if "none" in check or not re.search(r'\d', check):
+        return answer  # everything is grounded
+
+    bad_nums = {int(n) for n in re.findall(r'\d+', check) if 0 < int(n) <= len(claims)}
+    unsupported = [claims[i - 1] for i in sorted(bad_nums)]
+    if not unsupported:
+        return answer
+
+    print(f"[FactCorrect] {len(unsupported)}/{len(claims)} claim(s) unsupported — correcting")
+
+    # Step 3 — rewrite removing unsupported claims
+    bullets = "\n".join(f"  - {c}" for c in unsupported)
+    try:
+        corrected = llm.invoke(
+            "Rewrite the answer below, removing ONLY the unsupported claims listed. "
+            "Keep every supported fact unchanged. "
+            "If nothing remains, say: "
+            "'The retrieved policy documents do not directly address this specific point.'\n\n"
+            f"Original answer:\n{answer}\n\n"
+            f"Unsupported claims to remove:\n{bullets}"
+        ).content.strip()
+        # Strip any fabricated emails that survived
+        corrected = re.sub(r'\b[\w.+-]+@[\w.-]+\.\w+\b', '[contact SETU directly]', corrected)
+        return corrected
+    except Exception:
+        return answer
+
+
 def _run_pipeline(vs: Chroma, query: str) -> tuple[str, list[Document]]:
     """Core RAG pipeline. Returns (answer, top_reranked_docs).
 
@@ -307,15 +390,9 @@ def _run_pipeline(vs: Chroma, query: str) -> tuple[str, list[Document]]:
     )
     initial_answer = llm.invoke(answer_prompt).content
 
-    _needs_reflect = re.search(
-        r'@\w+\.\w+'
-        r'|SETU-[A-Z]{2,}-\d+'
-        r'|\bSETU-\d{3,}\b',
-        initial_answer, re.IGNORECASE
-    )
-    if _needs_reflect:
-        return _reflect_and_verify(query, context, initial_answer, llm), top5
-    return initial_answer, top5
+    # Systematic claim-level factuality check on every response
+    final_answer = _factcorrect(query, initial_answer, top5, llm)
+    return final_answer, top5
 
 
 def get_information(vs: Chroma, query: str) -> str:
