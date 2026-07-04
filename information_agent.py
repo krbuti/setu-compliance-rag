@@ -295,20 +295,25 @@ def _factcorrect(query: str, answer: str, docs: list[Document], llm) -> str:
         return answer
 
     # Step 2 — batch check all claims in one call
+    # Only flag claims that are CONTRADICTED or contain specific facts (numbers,
+    # names, dates) that do NOT appear in the context. Absence ≠ wrong.
     numbered = "\n".join(f"{i+1}. {c}" for i, c in enumerate(claims))
     try:
         check = llm.invoke(
             f"Policy context:\n{ctx_text}\n\n"
             f"Claims to verify:\n{numbered}\n\n"
-            "List the numbers of claims NOT directly supported by the context above. "
-            "Reply with comma-separated numbers (e.g. '2,4') or 'none' if all are supported. "
-            "Numbers only — no explanation."
+            "List the numbers of claims that are FACTUALLY WRONG based on the context. "
+            "A claim is wrong only if: (a) the context explicitly states something different, "
+            "OR (b) the claim contains a specific number, code, name, or date that is NOT "
+            "found anywhere in the context. "
+            "Do NOT flag claims that are merely absent from the context — absence is not error. "
+            "Reply with comma-separated numbers (e.g. '2,4') or 'none'. Numbers only."
         ).content.strip().lower()
     except Exception:
         return answer
 
     if "none" in check or not re.search(r'\d', check):
-        return answer  # everything is grounded
+        return answer  # nothing contradicted
 
     bad_nums = {int(n) for n in re.findall(r'\d+', check) if 0 < int(n) <= len(claims)}
     unsupported = [claims[i - 1] for i in sorted(bad_nums)]
@@ -390,8 +395,9 @@ def _run_pipeline(vs: Chroma, query: str) -> tuple[str, list[Document]]:
     )
     initial_answer = llm.invoke(answer_prompt).content
 
-    # Systematic claim-level factuality check on every response
-    final_answer = _factcorrect(query, initial_answer, top5, llm)
+    # Targeted verification: catches fake policy codes, invented emails, hallucinated
+    # source names. More conservative than FactCorrector — only rewrites on proven errors.
+    final_answer = _reflect_and_verify(query, context, initial_answer, llm)
     return final_answer, top5
 
 
