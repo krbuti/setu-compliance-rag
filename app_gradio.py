@@ -1,29 +1,133 @@
 """
 Gradio chat interface for the SETU Compliance RAG chatbot.
-Run via the Colab notebook or locally:
-    python app_gradio.py
+Run locally:  python app_gradio.py
+Live dashboard: /dashboard    Metrics API: /metrics
 """
+import os
+import time
+import threading
+from collections import deque
+from pathlib import Path
+
 import gradio as gr
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, JSONResponse
+import uvicorn
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from main_agent import handle_query
 
-DISCLAIMER = (
-    "⚠️ **Academic prototype — not an official SETU service.**  \n"
-    "Answers are generated from 48 SETU policy documents using AI and may be "
-    "incomplete or inaccurate. Always verify with the official policy document "
-    "or contact your HR / relevant SETU office before making decisions."
+
+# ── Metrics collector ─────────────────────────────────────────────────────────
+
+class MetricsCollector:
+    _ESCALATION_SIGNALS = [
+        "no dedicated policy", "could not find", "outside the scope",
+        "no specific policy", "don't have information", "not covered",
+        "unable to find", "no policy found",
+    ]
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.start_time = time.time()
+        self.total_queries = 0
+        self.error_count = 0
+        self.escalation_count = 0
+        self._latencies: deque[float] = deque(maxlen=100)
+        self._recent: deque[dict] = deque(maxlen=8)
+
+    def record(self, question: str, answer: str, latency_ms: float, error: bool = False) -> None:
+        with self._lock:
+            self.total_queries += 1
+            if error:
+                self.error_count += 1
+                self._recent.appendleft({
+                    "time": time.strftime("%H:%M:%S"),
+                    "snippet": question[:55] + ("…" if len(question) > 55 else ""),
+                    "latency_ms": round(latency_ms),
+                    "status": "error",
+                })
+                return
+            self._latencies.append(latency_ms)
+            escalated = any(s in answer.lower() for s in self._ESCALATION_SIGNALS)
+            if escalated:
+                self.escalation_count += 1
+            self._recent.appendleft({
+                "time": time.strftime("%H:%M:%S"),
+                "snippet": question[:55] + ("…" if len(question) > 55 else ""),
+                "latency_ms": round(latency_ms),
+                "status": "escalated" if escalated else "ok",
+            })
+
+    def to_dict(self) -> dict:
+        with self._lock:
+            lats = list(self._latencies)
+            uptime = round(time.time() - self.start_time)
+            h, rem = divmod(uptime, 3600)
+            m, s = divmod(rem, 60)
+            return {
+                "status": "live",
+                "uptime_seconds": uptime,
+                "uptime_label": f"{h}h {m:02d}m" if h else f"{m}m {s:02d}s",
+                "total_queries": self.total_queries,
+                "avg_latency_ms": round(sum(lats) / len(lats)) if lats else 0,
+                "min_latency_ms": round(min(lats)) if lats else 0,
+                "max_latency_ms": round(max(lats)) if lats else 0,
+                "error_count": self.error_count,
+                "escalation_count": self.escalation_count,
+                "error_rate_pct": round(self.error_count / self.total_queries * 100, 1) if self.total_queries else 0,
+                "escalation_rate_pct": round(self.escalation_count / self.total_queries * 100, 1) if self.total_queries else 0,
+                "recent_queries": list(self._recent),
+                "system": {
+                    "provider": os.getenv("LLM_PROVIDER", "groq"),
+                    "model": os.getenv("LLM_MODEL", "llama-3.1-8b"),
+                    "chunks": 2584,
+                    "policies": 48,
+                },
+            }
+
+
+collector = MetricsCollector()
+
+_DISCLAIMER = (
+    "\n\n---\n*Disclaimer: This is an academic AI prototype. "
+    "Verify all information with official SETU policy documents or HR before acting on it.*"
 )
 
 
 def chat(message: str, history: list) -> str:
     if not message.strip():
         return "Please enter a question about SETU policies."
-    answer = handle_query(message)
-    return answer + "\n\n---\n*Disclaimer: This is an academic AI prototype. Verify all information with official SETU policy documents or HR before acting on it.*"
+    t0 = time.time()
+    try:
+        answer = handle_query(message)
+        collector.record(message, answer, (time.time() - t0) * 1000)
+        return answer + _DISCLAIMER
+    except Exception:
+        collector.record(message, "", (time.time() - t0) * 1000, error=True)
+        raise
 
+
+# ── FastAPI app + routes ──────────────────────────────────────────────────────
+
+app = FastAPI(title="SETU Compliance RAG")
+
+_DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
+
+
+@app.get("/metrics", response_class=JSONResponse)
+async def get_metrics():
+    return collector.to_dict()
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def get_dashboard():
+    return _DASHBOARD_PATH.read_text(encoding="utf-8")
+
+
+# ── Gradio interface ──────────────────────────────────────────────────────────
 
 demo = gr.ChatInterface(
     fn=chat,
@@ -31,7 +135,9 @@ demo = gr.ChatInterface(
     description=(
         "Ask questions about SETU's 48 institutional policies — "
         "leave entitlements, recruitment, EDI, research conduct, data protection, and more.\n\n"
-        + DISCLAIMER
+        "⚠️ **Academic prototype — not an official SETU service.**  \n"
+        "Answers are generated using AI and may be incomplete or inaccurate. "
+        "Always verify with official SETU policy documents or HR before acting on them."
     ),
     examples=[
         "How many weeks of maternity leave is a female staff member entitled to?",
@@ -43,7 +149,12 @@ demo = gr.ChatInterface(
     ],
 )
 
+app = gr.mount_gradio_app(app, demo, path="/")
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     from information_agent import load_vectorstore
-    load_vectorstore()  # warm BM25 + cross-encoder before first user query
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    load_vectorstore()
+    uvicorn.run(app, host="0.0.0.0", port=7860)

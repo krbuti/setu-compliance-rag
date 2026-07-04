@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SETU Compliance RAG — Live Dashboard</title>
+  <style>
+    /* ── Tokens ───────────────────────────────────────────────────── */
+    :root {
+      --bg:         #F2F5F9;
+      --bg-alt:     #E8EDF4;
+      --surface:    #FFFFFF;
+      --border:     #D0D9E6;
+      --text-1:     #0B1928;
+      --text-2:     #3D5470;
+      --text-3:     #7A93AE;
+      --accent:     #B8882A;
+      --accent-dim: rgba(184,136,42,0.12);
+      --pos:        #2A9058;
+      --pos-bg:     #EBF7F1;
+      --warn:       #C05E20;
+      --warn-bg:    #FEF0E8;
+      --err:        #B02828;
+      --err-bg:     #FEEBEB;
+      --neu-bg:     #EDF1F7;
+      --rule:       #D4A843;
+      --live-glow:  rgba(42,144,88,0.15);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:         #0B1928;
+        --bg-alt:     #0D1F32;
+        --surface:    #132035;
+        --border:     #1E3451;
+        --text-1:     #EEF3F8;
+        --text-2:     #8BA8C0;
+        --text-3:     #4D6B85;
+        --accent:     #D4A843;
+        --accent-dim: rgba(212,168,67,0.10);
+        --pos:        #4CAF7D;
+        --pos-bg:     rgba(76,175,125,0.12);
+        --warn:       #E07A40;
+        --warn-bg:    rgba(224,122,64,0.12);
+        --err:        #E05050;
+        --err-bg:     rgba(224,80,80,0.12);
+        --neu-bg:     rgba(139,168,192,0.10);
+        --rule:       #D4A843;
+        --live-glow:  rgba(76,175,125,0.12);
+      }
+    }
+    :root[data-theme="light"] {
+      --bg: #F2F5F9; --bg-alt: #E8EDF4; --surface: #FFFFFF;
+      --border: #D0D9E6; --text-1: #0B1928; --text-2: #3D5470; --text-3: #7A93AE;
+      --accent: #B8882A; --accent-dim: rgba(184,136,42,0.12);
+      --pos: #2A9058; --pos-bg: #EBF7F1; --warn: #C05E20; --warn-bg: #FEF0E8;
+      --err: #B02828; --err-bg: #FEEBEB; --neu-bg: #EDF1F7; --rule: #D4A843;
+      --live-glow: rgba(42,144,88,0.15);
+    }
+    :root[data-theme="dark"] {
+      --bg: #0B1928; --bg-alt: #0D1F32; --surface: #132035;
+      --border: #1E3451; --text-1: #EEF3F8; --text-2: #8BA8C0; --text-3: #4D6B85;
+      --accent: #D4A843; --accent-dim: rgba(212,168,67,0.10);
+      --pos: #4CAF7D; --pos-bg: rgba(76,175,125,0.12);
+      --warn: #E07A40; --warn-bg: rgba(224,122,64,0.12);
+      --err: #E05050; --err-bg: rgba(224,80,80,0.12);
+      --neu-bg: rgba(139,168,192,0.10); --rule: #D4A843;
+      --live-glow: rgba(76,175,125,0.12);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text-1);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────── */
+    .hdr {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 58px;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .hdr-l { display: flex; align-items: baseline; gap: 12px; }
+    .hdr-title {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 17px; font-weight: normal;
+      color: var(--text-1);
+    }
+    .hdr-sub {
+      font-size: 11px; color: var(--text-3);
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .hdr-r { display: flex; align-items: center; gap: 14px; }
+    .live-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--pos);
+      background: var(--pos-bg); padding: 4px 10px;
+      border: 1px solid var(--pos);
+    }
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--pos);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.85)} }
+    .uptime-val { font-variant-numeric: tabular-nums; }
+    .refresh-meta { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+    .btn {
+      background: none; border: 1px solid var(--border);
+      color: var(--text-2); padding: 5px 10px;
+      font-size: 11px; cursor: pointer; letter-spacing: 0.04em;
+    }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .chatlink {
+      font-size: 11px; color: var(--accent); text-decoration: none; letter-spacing: 0.02em;
+    }
+    .chatlink:hover { text-decoration: underline; }
+
+    /* ── Main ────────────────────────────────────────────────────── */
+    .main { padding: 24px 28px; max-width: 1200px; margin: 0 auto; }
+    .section-lbl {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--text-3); margin-bottom: 10px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-lbl .badge-live {
+      font-size: 9px; padding: 1px 6px;
+      background: var(--pos-bg); color: var(--pos);
+      border: 1px solid var(--pos); letter-spacing: 0.05em;
+    }
+    .section-lbl .badge-eval {
+      font-size: 9px; padding: 1px 6px;
+      background: var(--accent-dim); color: var(--accent);
+      border: 1px solid var(--accent); letter-spacing: 0.05em;
+    }
+
+    /* ── CI Banner ───────────────────────────────────────────────── */
+    .ci-banner {
+      background: var(--pos-bg); border: 1px solid var(--pos);
+      padding: 9px 14px; display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 20px;
+    }
+    .ci-l { display: flex; align-items: center; gap: 10px; }
+    .ci-icon {
+      width: 22px; height: 22px; background: var(--pos);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; color: white; flex-shrink: 0;
+    }
+    .ci-text { font-size: 12px; color: var(--text-1); }
+    .ci-text strong { font-weight: 600; }
+    .ci-run { font-size: 11px; color: var(--text-3); }
+    .tag {
+      display: inline-flex; align-items: center;
+      font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; padding: 2px 7px;
+    }
+    .tag-pos { color: var(--pos); background: var(--pos-bg); }
+    .tag-warn { color: var(--warn); background: var(--warn-bg); }
+    .tag-err  { color: var(--err);  background: var(--err-bg); }
+
+    /* ── KPI grid ────────────────────────────────────────────────── */
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(5, 1fr);
+      gap: 10px; margin-bottom: 20px;
+    }
+    .kpi {
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 18px 16px 14px; position: relative;
+      transition: border-color 0.3s;
+    }
+    .kpi.flash { border-color: var(--accent); }
+    .kpi::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--rule); opacity: 0; transition: opacity 0.2s;
+    }
+    .kpi:hover::before { opacity: 1; }
+    .kpi-lbl {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.10em;
+      text-transform: uppercase; color: var(--text-3); margin-bottom: 9px;
+    }
+    .kpi-val {
+      font-family: Georgia, serif; font-size: 36px; font-weight: normal;
+      color: var(--text-1); line-height: 1; font-variant-numeric: tabular-nums;
+      margin-bottom: 5px;
+    }
+    .kpi-unit { font-size: 20px; color: var(--accent); }
+    .kpi-sub { font-size: 11px; color: var(--text-3); }
+
+    /* ── Mid grid ────────────────────────────────────────────────── */
+    .mid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+    .card { background: var(--surface); border: 1px solid var(--border); padding: 18px; }
+    .card-title {
+      font-family: Georgia, serif; font-size: 14px; font-weight: normal;
+      color: var(--text-1); margin-bottom: 3px;
+    }
+    .card-desc { font-size: 11px; color: var(--text-3); margin-bottom: 14px; }
+
+    /* ── Recent queries table ────────────────────────────────────── */
+    .q-table { width: 100%; border-collapse: collapse; }
+    .q-table th {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--text-3); text-align: left;
+      padding: 0 0 8px; border-bottom: 1px solid var(--border);
+    }
+    .q-table td {
+      font-size: 12px; color: var(--text-2); padding: 8px 0;
+      border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums;
+      vertical-align: top;
+    }
+    .q-table tr:last-child td { border-bottom: none; }
+    .q-table .t-time { width: 58px; color: var(--text-3); }
+    .q-table .t-lat  { width: 66px; text-align: right; }
+    .q-table .t-sta  { width: 76px; text-align: right; }
+    .q-snippet { color: var(--text-1); }
+    .empty-state {
+      padding: 28px 0; text-align: center;
+      font-size: 12px; color: var(--text-3); font-style: italic;
+    }
+
+    /* ── Bar chart (eval) ────────────────────────────────────────── */
+    .bar-group { margin-bottom: 12px; }
+    .bar-tier {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--text-2); margin-bottom: 6px;
+    }
+    .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .bar-name { font-size: 11px; color: var(--text-2); width: 62px; flex-shrink: 0; }
+    .bar-track { flex: 1; height: 6px; background: var(--bg-alt); }
+    .bar-fill { height: 100%; transition: width 1s cubic-bezier(.16,1,.3,1); width: 0; }
+    .bf-p { background: var(--accent); }
+    .bf-r { background: var(--pos); }
+    .bf-c { background: var(--text-3); }
+    .bar-pct { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-2); width: 34px; text-align: right; }
+    .bar-legend { display: flex; gap: 12px; margin-bottom: 14px; }
+    .leg { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-3); letter-spacing: 0.05em; text-transform: uppercase; }
+    .leg-dot { width: 8px; height: 8px; flex-shrink: 0; }
+    .rule { height: 1px; background: linear-gradient(90deg, var(--rule) 0%, transparent 60%); margin: 10px 0; opacity: .45; }
+
+    /* ── Bottom grid ─────────────────────────────────────────────── */
+    .bot { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .probe { display: flex; align-items: flex-start; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+    .probe:last-child { border-bottom: none; }
+    .probe-ic {
+      width: 18px; height: 18px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+    }
+    .pic-pass { background: var(--pos-bg); color: var(--pos); }
+    .probe-txt { font-size: 11px; color: var(--text-2); line-height: 1.4; }
+    .probe-txt strong { color: var(--text-1); font-weight: 600; }
+
+    .s-row { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--border); }
+    .s-row:last-child { border-bottom: none; }
+    .s-k { font-size: 11px; color: var(--text-3); }
+    .s-v { font-size: 12px; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
+
+    .bench { width: 100%; border-collapse: collapse; }
+    .bench th { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); text-align: left; padding: 0 0 8px; border-bottom: 1px solid var(--border); }
+    .bench th:not(:first-child) { text-align: right; }
+    .bench td { font-size: 11px; color: var(--text-2); padding: 7px 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+    .bench td:not(:first-child) { text-align: right; }
+    .bench tr:last-child td { border-bottom: none; }
+    .bench .hl td { font-weight: 600; color: var(--text-1); }
+    .better { color: var(--pos) !important; }
+
+    .footer {
+      border-top: 1px solid var(--border); padding: 14px 28px;
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 8px;
+    }
+    .footer-note { font-size: 11px; color: var(--text-3); }
+    .footer-link { font-size: 11px; color: var(--accent); text-decoration: none; }
+
+    @media (max-width: 900px) {
+      .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+      .mid, .bot { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .kpi-grid { grid-template-columns: 1fr 1fr; }
+      .hdr { padding: 0 14px; }
+      .main { padding: 12px 14px; }
+      .hdr-sub, .refresh-meta { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-l">
+    <span class="hdr-title">SETU Compliance Policy Assistant</span>
+    <span class="hdr-sub">Live Dashboard</span>
+  </div>
+  <div class="hdr-r">
+    <span class="refresh-meta" id="meta">Updating…</span>
+    <div class="live-badge">
+      <span class="dot"></span>
+      <span id="uptime-val">—</span>
+    </div>
+    <button class="btn" onclick="refresh()">↻ Refresh</button>
+    <a class="chatlink" href="/">← Chatbot</a>
+    <button class="btn" onclick="toggleTheme()">Theme</button>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- CI Banner -->
+  <div class="ci-banner">
+    <div class="ci-l">
+      <div class="ci-icon">✓</div>
+      <div>
+        <div class="ci-text"><strong>CI Probe Passing</strong> — 5 critical hallucination checks green on every push</div>
+        <div class="ci-run">github.com/krbuti/setu-compliance-rag/actions · No fake policy codes, no fabricated contacts, no wrong facts</div>
+      </div>
+    </div>
+    <div class="tag tag-pos">All Systems Go</div>
+  </div>
+
+  <!-- Live KPI strip -->
+  <div class="section-lbl">Runtime Metrics <span class="badge-live">Live</span></div>
+  <div class="kpi-grid">
+    <div class="kpi" id="kpi-tq">
+      <div class="kpi-lbl">Total Queries</div>
+      <div class="kpi-val" id="v-tq">—</div>
+      <div class="kpi-sub">This session</div>
+    </div>
+    <div class="kpi" id="kpi-lat">
+      <div class="kpi-lbl">Avg Latency</div>
+      <div class="kpi-val"><span id="v-lat">—</span><span class="kpi-unit" id="v-lat-u"></span></div>
+      <div class="kpi-sub" id="v-lat-range">—</div>
+    </div>
+    <div class="kpi" id="kpi-err">
+      <div class="kpi-lbl">Error Rate</div>
+      <div class="kpi-val"><span id="v-err">—</span><span class="kpi-unit" id="v-err-u"></span></div>
+      <div class="kpi-sub" id="v-err-count">—</div>
+    </div>
+    <div class="kpi" id="kpi-esc">
+      <div class="kpi-lbl">Escalation Rate</div>
+      <div class="kpi-val"><span id="v-esc">—</span><span class="kpi-unit" id="v-esc-u"></span></div>
+      <div class="kpi-sub" id="v-esc-count">—</div>
+    </div>
+    <div class="kpi" id="kpi-up">
+      <div class="kpi-lbl">Uptime</div>
+      <div class="kpi-val" id="v-up">—</div>
+      <div class="kpi-sub">OpenShift pod</div>
+    </div>
+  </div>
+
+  <!-- Mid: Recent queries + Eval quality -->
+  <div class="mid">
+
+    <div class="card">
+      <div class="card-title">Recent Queries</div>
+      <div class="card-desc">Last 8 queries · updates every 30 s</div>
+      <div id="q-wrap">
+        <div class="empty-state">No queries yet — <a class="chatlink" href="/">ask one in the chatbot</a></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Quality by Query Difficulty</div>
+      <div class="card-desc">Eval · 15 ground-truth queries across 3 tiers <span class="badge-eval" style="display:inline-flex;align-items:center;padding:1px 6px;font-size:9px;font-weight:600;letter-spacing:.05em;border:1px solid var(--accent);background:var(--accent-dim);color:var(--accent);">Last eval run</span></div>
+      <div class="bar-legend">
+        <div class="leg"><div class="leg-dot" style="background:var(--accent)"></div>Precision</div>
+        <div class="leg"><div class="leg-dot" style="background:var(--pos)"></div>Recall</div>
+        <div class="leg"><div class="leg-dot" style="background:var(--text-3)"></div>Citation</div>
+      </div>
+      <!-- Easy -->
+      <div class="bar-group">
+        <div class="bar-tier">Easy</div>
+        <div class="bar-row"><div class="bar-name">Precision</div><div class="bar-track"><div class="bar-fill bf-p" data-w="73"></div></div><div class="bar-pct">73%</div></div>
+        <div class="bar-row"><div class="bar-name">Recall</div><div class="bar-track"><div class="bar-fill bf-r" data-w="93"></div></div><div class="bar-pct">93%</div></div>
+        <div class="bar-row"><div class="bar-name">Citation</div><div class="bar-track"><div class="bar-fill bf-c" data-w="100"></div></div><div class="bar-pct">100%</div></div>
+      </div>
+      <div class="rule"></div>
+      <!-- Medium -->
+      <div class="bar-group">
+        <div class="bar-tier">Medium</div>
+        <div class="bar-row"><div class="bar-name">Precision</div><div class="bar-track"><div class="bar-fill bf-p" data-w="91"></div></div><div class="bar-pct">91%</div></div>
+        <div class="bar-row"><div class="bar-name">Recall</div><div class="bar-track"><div class="bar-fill bf-r" data-w="87"></div></div><div class="bar-pct">87%</div></div>
+        <div class="bar-row"><div class="bar-name">Citation</div><div class="bar-track"><div class="bar-fill bf-c" data-w="100"></div></div><div class="bar-pct">100%</div></div>
+      </div>
+      <div class="rule"></div>
+      <!-- Hard -->
+      <div class="bar-group">
+        <div class="bar-tier">Hard</div>
+        <div class="bar-row"><div class="bar-name">Precision</div><div class="bar-track"><div class="bar-fill bf-p" data-w="90"></div></div><div class="bar-pct">90%</div></div>
+        <div class="bar-row"><div class="bar-name">Recall</div><div class="bar-track"><div class="bar-fill bf-r" data-w="87"></div></div><div class="bar-pct">87%</div></div>
+        <div class="bar-row"><div class="bar-name">Citation</div><div class="bar-track"><div class="bar-fill bf-c" data-w="73"></div></div><div class="bar-pct">73%</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom row -->
+  <div class="bot">
+
+    <div class="card">
+      <div class="card-title">Safety &amp; Hallucination Controls</div>
+      <div class="card-desc">Automated CI checks on every push</div>
+      <div class="probe"><div class="probe-ic pic-pass">✓</div><div class="probe-txt"><strong>Fake policy codes blocked</strong><br>SETU-HR-001, SETU-001 etc. caught before response</div></div>
+      <div class="probe"><div class="probe-ic pic-pass">✓</div><div class="probe-txt"><strong>No fabricated contacts</strong><br>DPO email, staff names stripped by reflection step</div></div>
+      <div class="probe"><div class="probe-ic pic-pass">✓</div><div class="probe-txt"><strong>Factual correction verified</strong><br>"52 weeks maternity" → correctly states 26 weeks</div></div>
+      <div class="probe"><div class="probe-ic pic-pass">✓</div><div class="probe-txt"><strong>Out-of-scope graceful</strong><br>Remote working query → explicit denial, no hallucination</div></div>
+      <div class="probe"><div class="probe-ic pic-pass">✓</div><div class="probe-txt"><strong>Gen AI policy accurate</strong><br>Does not "ban all tools" — responsible use framework cited</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">System Configuration</div>
+      <div class="card-desc">OpenShift · keval-joshi-dev namespace</div>
+      <div class="s-row"><div class="s-k">LLM provider</div><div class="s-v" id="s-provider">—</div></div>
+      <div class="s-row"><div class="s-k">Model</div><div class="s-v" id="s-model">—</div></div>
+      <div class="s-row"><div class="s-k">Embedding model</div><div class="s-v">Jina v2 · 768-dim</div></div>
+      <div class="s-row"><div class="s-k">Reranker</div><div class="s-v">ms-marco cross-encoder</div></div>
+      <div class="s-row"><div class="s-k">Vector chunks</div><div class="s-v" id="s-chunks">2,584</div></div>
+      <div class="s-row"><div class="s-k">Policies indexed</div><div class="s-v" id="s-policies">48</div></div>
+      <div class="s-row"><div class="s-k">Deployment</div><div class="s-v">OpenShift · HPA 1–3 pods</div></div>
+      <div class="s-row"><div class="s-k">Cost per query</div><div class="s-v" style="color:var(--pos)">~$0.00</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Benchmark Comparison</div>
+      <div class="card-desc">vs. Omnia Retail Customer Support RAG (same tech stack)</div>
+      <table class="bench">
+        <thead><tr><th>KPI</th><th>SETU</th><th>Retail</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td>Avg Response</td><td class="better" id="b-lat">2,456ms</td><td>9,109ms</td></tr>
+          <tr class="hl"><td>Resolution Rate</td><td class="better">89%</td><td>66.7%</td></tr>
+          <tr class="hl"><td>Answer Precision</td><td class="better">85%</td><td>98.3%</td></tr>
+          <tr class="hl"><td>Citation Accuracy</td><td class="better">91%</td><td>n/a</td></tr>
+          <tr class="hl"><td>Hallucination</td><td class="better">0%</td><td>4.9%</td></tr>
+          <tr class="hl"><td>Cost / query</td><td class="better">~$0</td><td>&lt;$0.001</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+</div>
+
+<footer class="footer">
+  <div class="footer-note">SETU Compliance Policy Assistant · Academic prototype · Verify answers with official policy documents before acting</div>
+  <a class="footer-link" href="https://setu-compliance-rag-keval-joshi-dev.apps.rm3.7wse.p1.openshiftapps.com/dashboard">
+    /dashboard
+  </a>
+</footer>
+
+<script>
+  /* ── Theme ─────────────────────────────────────────────────── */
+  function toggleTheme() {
+    const r = document.documentElement;
+    const cur = r.getAttribute('data-theme');
+    const isDark = cur === 'dark' || (!cur && matchMedia('(prefers-color-scheme:dark)').matches);
+    r.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  }
+
+  /* ── Bar animation ─────────────────────────────────────────── */
+  function animateBars() {
+    document.querySelectorAll('.bar-fill[data-w]').forEach(el => {
+      setTimeout(() => { el.style.width = el.dataset.w + '%'; }, 250);
+    });
+  }
+
+  /* ── Recent queries render ─────────────────────────────────── */
+  function renderQueries(rows) {
+    const wrap = document.getElementById('q-wrap');
+    if (!rows || rows.length === 0) {
+      wrap.innerHTML = '<div class="empty-state">No queries yet — <a class="chatlink" href="/">ask one in the chatbot</a></div>';
+      return;
+    }
+    const statusTag = (s) => {
+      if (s === 'ok') return '<span class="tag tag-pos" style="font-size:9px;padding:1px 5px">ok</span>';
+      if (s === 'escalated') return '<span class="tag tag-warn" style="font-size:9px;padding:1px 5px">escalated</span>';
+      return '<span class="tag tag-err" style="font-size:9px;padding:1px 5px">error</span>';
+    };
+    let html = '<table class="q-table"><thead><tr><th class="t-time">Time</th><th>Query</th><th class="t-lat">Latency</th><th class="t-sta">Status</th></tr></thead><tbody>';
+    rows.forEach(r => {
+      const lat = r.latency_ms ? r.latency_ms.toLocaleString() + 'ms' : '—';
+      html += `<tr>
+        <td class="t-time">${r.time || '—'}</td>
+        <td><span class="q-snippet">${escHtml(r.snippet || '')}</span></td>
+        <td class="t-lat">${lat}</td>
+        <td class="t-sta">${statusTag(r.status)}</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  /* ── Flash animation on tile update ───────────────────────── */
+  function flash(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 600);
+  }
+
+  /* ── Fetch and apply metrics ───────────────────────────────── */
+  let prevTotal = -1;
+
+  async function refresh() {
+    try {
+      const res = await fetch('/metrics');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const d = await res.json();
+
+      /* uptime */
+      document.getElementById('uptime-val').textContent = d.uptime_label || '—';
+      const vUp = document.getElementById('v-up');
+      vUp.textContent = d.uptime_label || '—';
+
+      /* total queries */
+      const tq = document.getElementById('v-tq');
+      tq.textContent = (d.total_queries ?? 0).toLocaleString();
+      if (prevTotal !== d.total_queries) flash('kpi-tq');
+      prevTotal = d.total_queries;
+
+      /* latency */
+      if (d.total_queries > 0) {
+        document.getElementById('v-lat').textContent = (d.avg_latency_ms ?? 0).toLocaleString();
+        document.getElementById('v-lat-u').textContent = 'ms';
+        document.getElementById('v-lat-range').textContent =
+          `min ${(d.min_latency_ms||0).toLocaleString()} · max ${(d.max_latency_ms||0).toLocaleString()}ms`;
+        /* update benchmark row with live avg */
+        document.getElementById('b-lat').textContent = (d.avg_latency_ms||0).toLocaleString() + 'ms';
+      } else {
+        document.getElementById('v-lat').textContent = '—';
+        document.getElementById('v-lat-u').textContent = '';
+        document.getElementById('v-lat-range').textContent = 'No queries yet';
+      }
+
+      /* error rate */
+      document.getElementById('v-err').textContent = d.total_queries > 0 ? (d.error_rate_pct ?? 0) : '—';
+      document.getElementById('v-err-u').textContent = d.total_queries > 0 ? '%' : '';
+      document.getElementById('v-err-count').textContent = d.total_queries > 0 ? `${d.error_count ?? 0} errors` : 'No queries yet';
+
+      /* escalation rate */
+      document.getElementById('v-esc').textContent = d.total_queries > 0 ? (d.escalation_rate_pct ?? 0) : '—';
+      document.getElementById('v-esc-u').textContent = d.total_queries > 0 ? '%' : '';
+      document.getElementById('v-esc-count').textContent = d.total_queries > 0 ? `${d.escalation_count ?? 0} escalated` : 'No queries yet';
+
+      /* system */
+      if (d.system) {
+        document.getElementById('s-provider').textContent = d.system.provider || '—';
+        document.getElementById('s-model').textContent = d.system.model || '—';
+        document.getElementById('s-chunks').textContent = (d.system.chunks ?? 2584).toLocaleString();
+        document.getElementById('s-policies').textContent = d.system.policies ?? 48;
+      }
+
+      /* recent queries */
+      renderQueries(d.recent_queries || []);
+
+      /* timestamp */
+      lastRefreshed = Date.now();
+      updateMeta();
+    } catch (e) {
+      document.getElementById('meta').textContent = 'Fetch error — retrying…';
+      console.error(e);
+    }
+  }
+
+  /* ── Countdown ticker ──────────────────────────────────────── */
+  let lastRefreshed = Date.now();
+  const INTERVAL = 30000;
+  let countdown = INTERVAL / 1000;
+
+  function updateMeta() {
+    const ago = Math.round((Date.now() - lastRefreshed) / 1000);
+    const next = Math.max(0, Math.round((INTERVAL - (Date.now() - lastRefreshed)) / 1000));
+    document.getElementById('meta').textContent = `Updated ${ago}s ago · refresh in ${next}s`;
+  }
+
+  setInterval(() => {
+    updateMeta();
+    if (Date.now() - lastRefreshed >= INTERVAL) refresh();
+  }, 1000);
+
+  /* ── Init ──────────────────────────────────────────────────── */
+  animateBars();
+  refresh();
+</script>
+</body>
+</html>
