@@ -258,6 +258,49 @@ Measured across 15 ground-truth queries spanning easy / medium / hard difficulty
 
 ---
 
+## Under the Hood: LLM System Design
+
+Production LLM systems have more moving parts than just picking a model. Here's how each layer applies to this project — from the obvious to the essential.
+
+### Surface Layer — Fine-tuning · Inference · Serving
+
+| Concept | This project's choice | Why |
+|---------|----------------------|-----|
+| **Fine-tuning** | None — RAG + prompt engineering instead | Policy docs change frequently; fine-tuning would go stale. RAG stays current by re-ingesting updated PDFs |
+| **Inference** | Groq API (LPU hardware) | Sub-500ms TTFT on llama-3.1-8b-instant without managing any GPU infrastructure |
+| **Serving** | FastAPI + Gradio on OpenShift, HPA 1–3 pods | Auto-scales under load; zero-downtime rolling deploys via `oc rollout` |
+
+### Model & Context Choices
+
+| Concept | This project's choice | Why |
+|---------|----------------------|-----|
+| **Model size** | llama-3.1-8b-instant (8B) | Balances speed and accuracy for compliance Q&A; 70B would improve faithfulness but hits Groq free-tier rate limits |
+| **Context length** | 128K window (Groq default) | Full policy sections fit in one call; parent-child chunking (512/1536 chars) ensures the right section is always within the window |
+| **Prefill / decoding** | Groq manages internally | Groq's LPU batches prefill separately from autoregressive decoding — this is why streaming tokens start fast without blocking |
+| **KV cache** | Groq caches system prompt KV server-side; `AnswerCache` class mirrors this at the app layer | Identical queries skip the LLM entirely (Redis-backed, falls back to in-memory dict) |
+
+### Efficiency Layer — Quantization · Memory · Latency · Cost
+
+| Concept | This project's choice | Why |
+|---------|----------------------|-----|
+| **Quantization** | Handled by Groq LPUs (INT8 equivalent) | 8B model quality at <500ms TTFT with no quantization config on our side |
+| **Memory** | Cross-encoder (MiniLM-L6, 22M params) runs on CPU; BM25 is pure NumPy | No GPU required — entire system runs on a 512MB OpenShift pod |
+| **Latency / throughput** | Parallel BM25 + dense retrieval via `ThreadPoolExecutor`; streaming `yield` from Groq | ~50ms saved per query from parallel retrieval; streaming eliminates the "blank screen" wait |
+| **Cost / efficiency** | Groq + Jina AI free tier = $0/query | Only Upstash Redis (~$0/mo on free tier) added for persistent answer cache |
+
+### Essential Layer — Batching · Parallelism · FlashAttention · Low-level Ops
+
+| Concept | This project's choice | Why |
+|---------|----------------------|-----|
+| **Batching** | Jina embeddings: batch size 32 (tuned for API stability); ChromaDB ingest: 100 chunks/batch | Larger batches caused Jina 408 timeouts; 32 is stable across 1407 chunks |
+| **Parallelism** | Two levels: (1) BM25 + dense retrieval run concurrently; (2) information + action agents run concurrently | Both save real wall-clock time since the bottlenecks are independent I/O calls |
+| **FlashAttention** | Used internally by Groq's LPU | The reason a free-tier 8B model responds in under 500ms — not visible to us, but the latency benefit is real |
+| **Low-level optimizations** | `sentence-transformers` auto-quantizes MiniLM-L6 on load; BM25 uses scipy sparse matrices | Cross-encoder reranking costs ~50ms on CPU instead of 500ms for an LLM reranker |
+
+> **Key takeaway:** The deeper you go, the more you realise the model itself is often *not* the bottleneck. In this project the biggest latency wins came from parallel retrieval threads and Groq's hardware — not from changing the model.
+
+---
+
 ## Key Design Choices vs Lab-06 Baseline
 
 | Aspect | Lab-06 | This project |
