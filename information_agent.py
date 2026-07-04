@@ -1,24 +1,23 @@
 """
-Information agent — production-grade retrieval for SETU compliance policies.
+Information agent — vectorless retrieval for SETU compliance policies.
 
-Pipeline (fast, accurate, citation-aware):
-  1. Self-query filter   — if query names a specific policy, restrict search to it
-  2. Hybrid retrieval    — BM25 (keyword) + MMR ChromaDB (semantic diversity)
-                           fused with Reciprocal Rank Fusion (RRF)
+Pipeline (BM25-only — no embeddings, no vector DB):
+  1. Self-query filter   — if query names a specific policy, boost BM25 results from it
+  2. BM25 retrieval      — keyword search over 2,584 chunks loaded from chunk_store.json
   3. Cross-encoder rerank — local sentence-transformer model, ~50ms, no LLM call
-  4. Parent-chunk upgrade — swap matched child for its richer parent context
-  5. Generate answer      — grounded, cites source policy names
+  4. Generate answer      — grounded, cites source policy names
 
-Why this beats the naive approach:
+Why vectorless?
   - BM25 catches exact legal/regulatory terms ("GDPR", "Article 6", "Garda vetting")
-    that semantic embeddings can miss
-  - MMR prevents retrieving 3 near-duplicate chunks from the same paragraph
-  - Cross-encoder reranking is 100x faster than LLM-based reranking and more
-    accurate because it scores each (query, passage) pair jointly
-  - Self-query filtering stops leakage from unrelated policies
+    that semantic embeddings also match — for policy queries the vocabulary overlap is high
+  - Cross-encoder reranking is where precision comes from, not the retriever
+  - Removes Jina AI API dependency (~300ms latency per query)
+  - Removes 16 MB ChromaDB file from Docker image (replaced by 3 MB chunk_store.json)
+  - No JINA_API_KEY required — fully self-contained on Groq alone
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Optional
@@ -27,17 +26,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_core.documents import Document
-from langchain_community.vectorstores import Chroma
 from langchain_community.retrievers import BM25Retriever
-from config.llm_config import get_embeddings, get_llm
+from config.llm_config import get_llm
 
-CHROMA_DIR = Path(__file__).parent / "chroma_db"
-COLLECTION  = "setu_compliance"
+CHUNK_STORE = Path(__file__).parent / "chunk_store.json"
 
-# SETU does not use numeric policy codes. Any pattern like SETU-HR-001 is invented.
 _FAKE_CODE_RE = re.compile(r'\bSETU-[A-Z]{2,}-\d+\b|\bSETU-\d{3,}\b', re.IGNORECASE)
 
-# Known policy document names for self-query detection
 KNOWN_POLICIES = [
     "Data Protection", "Data Retention", "Data Governance",
     "CCTV", "Closed Circuit Television",
@@ -56,11 +51,8 @@ KNOWN_POLICIES = [
     "Fitness to Practise", "Fitness to Continue",
     "Voluntary Campus Transfer",
     "Visiting Academic",
-    "Intellectual Property",
 ]
 
-_embeddings  = get_embeddings()
-_vs: Optional[Chroma]      = None
 _bm25: Optional[BM25Retriever] = None
 _reranker = None
 
@@ -77,129 +69,54 @@ def _load_reranker():
     return _reranker
 
 
-def load_vectorstore() -> Chroma:
-    global _vs, _bm25
-    if not CHROMA_DIR.exists():
+def load_chunk_store() -> BM25Retriever:
+    """Load chunks from chunk_store.json and build BM25 index."""
+    global _bm25
+    if _bm25 is not None:
+        return _bm25
+    if not CHUNK_STORE.exists():
         raise RuntimeError(
-            f"ChromaDB not found at {CHROMA_DIR}. Run 'python ingest.py' first."
+            f"chunk_store.json not found at {CHUNK_STORE}. "
+            "Run: python export_chunks.py"
         )
-    if _vs is None:
-        _vs = Chroma(
-            persist_directory=str(CHROMA_DIR),
-            embedding_function=_embeddings,
-            collection_name=COLLECTION,
-        )
-        # Build BM25 index from all stored child chunks
-        print("[INFO] Building BM25 index from ChromaDB documents...")
-        raw = _vs._collection.get(include=["documents", "metadatas"])
-        all_docs = [
-            Document(page_content=text, metadata=meta)
-            for text, meta in zip(raw["documents"], raw["metadatas"])
-        ]
-        _bm25 = BM25Retriever.from_documents(all_docs, k=8)
-        print(f"[OK] BM25 index ready ({len(all_docs)} documents)")
-        _load_reranker()
-    return _vs
+    print(f"[INFO] Loading chunk store from {CHUNK_STORE} ...")
+    with open(CHUNK_STORE, encoding="utf-8") as f:
+        raw = json.load(f)
+    docs = [Document(page_content=c["text"], metadata=c["metadata"]) for c in raw]
+    _bm25 = BM25Retriever.from_documents(docs, k=12)
+    print(f"[OK] BM25 index ready ({len(docs)} chunks, no embeddings)")
+    _load_reranker()
+    return _bm25
 
 
 def _detect_policy_filter(query: str) -> Optional[str]:
-    """Return a ChromaDB doc_name filter if the query explicitly names a policy."""
     q = query.lower()
     for name in KNOWN_POLICIES:
         if name.lower() in q:
-            # Match against stored doc_name metadata (partial match)
             return name
     return None
 
 
-def _reciprocal_rank_fusion(
-    *ranked_lists: list[Document], k: int = 60
-) -> list[Document]:
-    """Merge multiple ranked lists using RRF. Higher score = more relevant."""
-    scores: dict[str, float] = {}
-    doc_map: dict[str, Document] = {}
-
-    for ranked in ranked_lists:
-        for rank, doc in enumerate(ranked):
-            key = doc.page_content[:120]  # dedup key
-            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank + 1)
-            doc_map[key] = doc
-
-    sorted_keys = sorted(scores, key=lambda x: scores[x], reverse=True)
-    return [doc_map[k] for k in sorted_keys]
-
-
-def _hybrid_retrieve(
-    vs: Chroma, query: str, policy_filter: Optional[str] = None, top_n: int = 10
-) -> list[Document]:
-    """BM25 + dense similarity retrieval fused with RRF.
-
-    Uses similarity (not MMR) for the dense leg — MMR's diversity penalty
-    was pulling in off-topic policies and drowning out the correct one.
-    BM25 handles keyword diversity naturally (different term matches = different docs).
-    ChromaDB 1.5.x $contains filter returns 0 results — do not use metadata filtering.
-    """
-    dense_retriever = vs.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 10},
-    )
-    dense_results = dense_retriever.invoke(query)
-
-    # BM25 with wider k so keyword matches dominate RRF when dense drifts
-    if _bm25:
-        _bm25.k = 12
-        sparse_results = _bm25.invoke(query)
-    else:
-        sparse_results = []
-
-    fused = _reciprocal_rank_fusion(dense_results, sparse_results)
-    return fused[:top_n]
+def _bm25_retrieve(query: str, top_n: int = 16) -> list[Document]:
+    """Pure BM25 retrieval — wider k so the cross-encoder has enough candidates."""
+    if _bm25 is None:
+        raise RuntimeError("Chunk store not loaded. Call load_chunk_store() first.")
+    _bm25.k = top_n
+    return _bm25.invoke(query)
 
 
 def _cross_encode_rerank(
-    query: str, candidates: list[Document], top_k: int = 3
+    query: str, candidates: list[Document], top_k: int = 5
 ) -> list[Document]:
-    """Re-rank candidates with a local cross-encoder. Falls back to RRF order."""
-    reranker = _reranker
-    if reranker is None:
+    if _reranker is None:
         return candidates[:top_k]
     pairs  = [(query, doc.page_content[:512]) for doc in candidates]
-    scores = reranker.predict(pairs)
+    scores = _reranker.predict(pairs)
     ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
     return [doc for _, doc in ranked[:top_k]]
 
 
-def _upgrade_to_parent(docs: list[Document]) -> list[Document]:
-    """Replace each child chunk with its stored parent for richer context."""
-    return [
-        Document(
-            page_content=doc.metadata.get("parent_doc", doc.page_content),
-            metadata=doc.metadata,
-        )
-        for doc in docs
-    ]
-
-
-def _lightweight_expand(query: str, llm) -> list[str]:
-    """One fast rewrite — cheaper than 3 expansions."""
-    prompt = (
-        f"Rewrite this policy question in one alternative way:\n{query}\n"
-        "Return only the rewritten question, nothing else."
-    )
-    alt = llm.invoke(prompt).content.strip()
-    return [query, alt] if alt and alt != query else [query]
-
-
 def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> str:
-    """
-    Second-pass LLM check: verify the initial answer is fully grounded in the
-    retrieved context. Catches hallucinated policy names, invented reference codes
-    (e.g. SETU-001), and facts not traceable to the source excerpts.
-
-    Returns a corrected answer when unsupported claims are found, or the original
-    answer unchanged if everything checks out.
-    """
-    # Extract source names actually present in context
     import re as _re
     source_names = _re.findall(r'\[Source:\s*([^\]]+)\]', context)
     sources_list = "\n".join(f"  - {s.strip()}" for s in source_names) or "  (none retrieved)"
@@ -213,7 +130,7 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
         "Draft answer to verify:\n"
         f"{initial_answer}\n\n"
         "Check the draft answer. Flag it as needing REVISION if ANY of these are true:\n"
-        "1. It mentions a policy reference code (e.g. SETU-001, SETU-HR-002, SETU-AC-005) "
+        "1. It mentions a policy reference code (e.g. SETU-001, SETU-HR-002) "
         "— SETU does not use numeric policy codes; any such code is invented\n"
         "2. It names a policy document NOT in the source list above\n"
         "3. It states a specific number, date, or entitlement NOT present word-for-word in the excerpts\n"
@@ -231,7 +148,6 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
             return reflection[len("VERIFIED:"):].strip()
         elif reflection.startswith("REVISED:"):
             revised = reflection[len("REVISED:"):].strip()
-            # Strip any email addresses that survived the LLM revision
             revised = re.sub(r'\b[\w.+-]+@[\w.-]+\.\w+\b', '[contact SETU directly]', revised)
             print("[INFO] Reflection: unsupported claims removed from answer")
             return revised
@@ -242,8 +158,7 @@ def _reflect_and_verify(query: str, context: str, initial_answer: str, llm) -> s
         return initial_answer
 
 
-def get_information(vs: Chroma, query: str) -> str:
-    # SETU does not use numeric policy reference codes — reject immediately
+def get_information(query: str) -> str:
     if _FAKE_CODE_RE.search(query):
         return (
             "SETU does not use numeric policy reference codes. "
@@ -255,25 +170,20 @@ def get_information(vs: Chroma, query: str) -> str:
     llm           = get_llm()
     policy_filter = _detect_policy_filter(query)
 
-    # Single-pass hybrid retrieval (no expansion — saves 1 LLM call + embedding)
-    all_candidates = _hybrid_retrieve(vs, query, policy_filter)
+    candidates = _bm25_retrieve(query, top_n=16)
 
-    # Deduplicate by content
+    # Deduplicate
     seen, unique = set(), []
-    for doc in all_candidates:
+    for doc in candidates:
         key = doc.page_content[:120]
         if key not in seen:
             seen.add(key)
             unique.append(doc)
 
-    # Cross-encoder rerank -> top 5 then use children directly
-    # (parent-chunk upgrade skipped: stored parent metadata may point to wrong sections)
     top5 = _cross_encode_rerank(query, unique, top_k=5)
-    context_docs = top5
 
-    # Build cited context block
     context_parts = []
-    for doc in context_docs:
+    for doc in top5:
         source = doc.metadata.get("doc_name", "Unknown Policy")
         context_parts.append(f"[Source: {source}]\n{doc.page_content}")
     context = "\n\n---\n\n".join(context_parts)
@@ -299,12 +209,10 @@ def get_information(vs: Chroma, query: str) -> str:
     )
     initial_answer = llm.invoke(answer_prompt).content
 
-    # Reflection only for things that can't come from context: invented emails or
-    # policy codes. Numbers/dates are allowed — they come from the retrieved chunks.
     _needs_reflect = re.search(
-        r'@\w+\.\w+'          # fabricated email address
-        r'|SETU-[A-Z]{2,}-\d+' # invented numeric policy code
-        r'|\bSETU-\d{3,}\b',   # another invented code pattern
+        r'@\w+\.\w+'
+        r'|SETU-[A-Z]{2,}-\d+'
+        r'|\bSETU-\d{3,}\b',
         initial_answer, re.IGNORECASE
     )
     if _needs_reflect:
@@ -313,14 +221,14 @@ def get_information(vs: Chroma, query: str) -> str:
 
 
 if __name__ == "__main__":
-    vs = load_vectorstore()
+    load_chunk_store()
     questions = [
         "What is SETU's data retention policy for student records?",
-        "Can CCTV footage be shared with third parties at SETU?",
         "What are the grounds for an academic integrity investigation?",
         "What does the Gen AI policy say about staff using AI tools?",
+        "How many weeks of maternity leave is a SETU staff member entitled to?",
     ]
     for q in questions:
         print(f"Q: {q}")
-        print(f"A: {get_information(vs, q)}")
+        print(f"A: {get_information(q)}")
         print("-" * 60)

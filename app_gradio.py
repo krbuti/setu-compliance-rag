@@ -155,6 +155,6 @@ app = gr.mount_gradio_app(app, demo, path="/")
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    from information_agent import load_vectorstore
-    load_vectorstore()
+    from information_agent import load_chunk_store
+    load_chunk_store()
     uvicorn.run(app, host="0.0.0.0", port=7860)

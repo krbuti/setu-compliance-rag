@@ -24,8 +24,7 @@ COPY ingest.py            .
 # Bake in the pre-built vector store and policy documents.
 # No runtime ingest needed — chroma_db is read-only at query time.
 COPY static/              ./static/
-COPY dataset/             ./dataset/
-COPY chroma_db/           ./chroma_db/
+COPY chunk_store.json     .
 
 # Set HF_HOME inside /app so the model cache lands in a writable location
 # for OpenShift's arbitrary non-root UID (which cannot write to /.cache).

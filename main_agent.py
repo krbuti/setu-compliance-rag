@@ -16,7 +16,7 @@ load_dotenv()
 
 from langgraph.graph import StateGraph, END
 from triage_agent import classify_message, TriageResult
-from information_agent import load_vectorstore, get_information
+from information_agent import load_chunk_store, get_information
 from action_agent import run_action_agent
 from config.llm_config import get_llm
 
@@ -29,14 +29,9 @@ class PolicyState(TypedDict):
     final_response: str
 
 
-# ── Load vector store once at startup ────────────────────────────────────────
-_vs = None
-
-def _get_vs():
-    global _vs
-    if _vs is None:
-        _vs = load_vectorstore()
-    return _vs
+# ── Load chunk store once at startup ─────────────────────────────────────────
+def _ensure_loaded():
+    load_chunk_store()
 
 
 # ── Graph nodes ───────────────────────────────────────────────────────────────
@@ -53,7 +48,7 @@ def information_node(state: PolicyState) -> PolicyState:
     if not triage["needs_info"]:
         return {"info_response": ""}
     print("[Information] Retrieving policy context...")
-    answer = get_information(_get_vs(), state["user_query"])
+    answer = get_information(state["user_query"])
     return {"info_response": answer}
 
 
