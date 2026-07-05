@@ -134,6 +134,7 @@ def run_action_agent(query: str, category: str = "policy_lookup") -> str:
     agent = create_react_agent(
         model=llm,
         tools=tools,
+        max_iterations=4,  # budget cap: 4 tool calls max per query
     )
     system = (
         "You are a SETU policy navigation assistant. "

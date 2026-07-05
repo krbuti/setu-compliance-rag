@@ -49,32 +49,63 @@ POLICY_HINTS = {
 }
 
 
+# Keyword signals for zero-LLM triage routing
+_KEYWORD_MAP: list[tuple[str, list[str]]] = [
+    ("out_of_scope",      ["weather", "sport", "football", "news", "recipe", "joke",
+                           "canteen", "bus", "timetable", "opening hours", "parking"]),
+    ("document_request",  ["which document", "which policy", "where can i find",
+                           "what document", "point me to", "link to"]),
+    ("comparison_query",  ["difference between", "compare", "vs ", "versus",
+                           "both policies", "which is stricter"]),
+    ("eligibility_check", ["am i eligible", "do i qualify", "can i apply",
+                           "am i entitled", "qualify for", "eligible for"]),
+    ("procedure_query",   ["how do i", "how to", "what steps", "what is the process",
+                           "how should i", "what do i need to do", "procedure for",
+                           "report a", "submit a", "apply for"]),
+]
+
+
 def classify_message(message: str) -> TriageResult:
-    llm = get_llm()
+    """Classify a query using keyword rules first; fall back to LLM for ambiguous cases.
 
-    prompt = f"""You are a SETU (South East Technological University) policy assistant classifier.
-Read the user query and classify it into exactly ONE of the following categories:
+    Keyword routing avoids a full LLM call (~300ms + rate-limit quota) for the
+    majority of queries where intent is unambiguous from the words alone.
+    LLM fallback handles edge cases where keywords don't match clearly.
+    """
+    msg_lower = message.lower()
 
-- policy_lookup       : User wants to know what a specific policy says
-- procedure_query     : User wants to know how to do something (process / steps)
-- eligibility_check   : User wants to know if they qualify for something
-- comparison_query    : User wants to compare two or more policies
-- document_request    : User wants to know which policy document to consult
-- out_of_scope        : Query is unrelated to SETU institutional policies
+    # Keyword pass — O(n) scan, no API call
+    category = None
+    for cat, keywords in _KEYWORD_MAP:
+        if any(kw in msg_lower for kw in keywords):
+            category = cat
+            break
 
-Respond with ONLY the category name. No explanation, no punctuation.
+    # LLM fallback for ambiguous cases (no keyword matched → likely policy_lookup)
+    if category is None:
+        # Most queries are policy lookups — only use LLM when it might be a
+        # procedure or eligibility question without strong keyword signal.
+        ambiguous_signals = ["can", "may", "must", "should", "allowed", "permitted",
+                             "required", "need to", "have to", "when", "what happens"]
+        if any(s in msg_lower for s in ambiguous_signals):
+            try:
+                llm = get_llm()
+                prompt = (
+                    "Classify this SETU policy query into ONE category:\n"
+                    "- policy_lookup | procedure_query | eligibility_check | "
+                    "comparison_query | document_request | out_of_scope\n\n"
+                    f"Query: {message}\n\nReply with only the category name."
+                )
+                result = llm.invoke(prompt).content.strip().lower().replace("-", "_")
+                category = result if result in ROUTING_TABLE else "policy_lookup"
+            except Exception:
+                category = "policy_lookup"
+        else:
+            category = "policy_lookup"
 
-User query: {message}
-"""
-    response = llm.invoke(prompt)
-    category = response.content.strip().lower().replace("-", "_")
-
-    if category not in ROUTING_TABLE:
-        category = "policy_lookup"
-
-    routing       = ROUTING_TABLE[category]
-    urgency       = URGENCY_GUIDE[category]
-    info_query    = f"{message} — context: {POLICY_HINTS[category]}"
+    routing        = ROUTING_TABLE[category]
+    urgency        = URGENCY_GUIDE[category]
+    info_query     = f"{message} — context: {POLICY_HINTS[category]}"
     actions_needed = [category] if "action" in routing else []
 
     return TriageResult(
