@@ -288,27 +288,41 @@ async def api_query(request: QueryRequest):
 
     t0 = time.perf_counter()
     try:
-        from information_agent import load_vectorstore, get_information_with_sources
+        from information_agent import load_vectorstore, get_information_with_sources, _semantic_cache
         vs = load_vectorstore()
+        hits_before = _semantic_cache.hits
         answer, sources = get_information_with_sources(vs, request.query)
+        semantic_hit = _semantic_cache.hits > hits_before
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
     latency = round((time.perf_counter() - t0) * 1000)
     collector.record(request.query, answer, latency)
-    _cache.set(request.query, answer)
+    if not semantic_hit:
+        _cache.set(request.query, answer)
 
     return QueryResponse(
         answer=answer,
         sources=sources,
         latency_ms=latency,
-        cached=False,
+        cached=semantic_hit,
     )
 
 
 @app.get("/metrics", response_class=JSONResponse, tags=["system"])
 async def get_metrics():
-    return collector.to_dict()
+    data = collector.to_dict()
+    try:
+        from information_agent import _semantic_cache
+        data["semantic_cache"] = {
+            "size": len(_semantic_cache),
+            "hits": _semantic_cache.hits,
+            "misses": _semantic_cache.misses,
+            "hit_rate_pct": round(_semantic_cache.hit_rate * 100, 1),
+        }
+    except Exception:
+        pass
+    return data
 
 
 @app.get("/dashboard", response_class=HTMLResponse, tags=["system"])
