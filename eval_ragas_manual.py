@@ -185,7 +185,7 @@ def main():
             answer, contexts = f"ERROR: {exc}", []
         latency_ms = round((time.perf_counter() - t0) * 1000)
         print(f"  {latency_ms}ms | {len(contexts)} contexts retrieved")
-        time.sleep(3)
+        time.sleep(5)  # extra guard: FactCorrector adds 2-3 LLM calls per query
 
         # Compute metrics
         print("  computing faithfulness...", end=" ", flush=True)

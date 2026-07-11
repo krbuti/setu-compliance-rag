@@ -187,10 +187,10 @@ def retrieval_precision(query: str, retrieved_docs: list, llm) -> float:
 def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    from information_agent import load_vectorstore, get_information, _hybrid_retrieve
+    from information_agent import load_chunk_store, get_information, _bm25_retrieve
     from config.llm_config import get_llm
 
-    vs  = load_vectorstore()
+    load_chunk_store()
     llm = get_llm(temperature=0)
 
     print("#" * 70)
@@ -207,14 +207,14 @@ def main():
 
         # Retrieve chunks for retrieval-precision metric
         try:
-            raw = _hybrid_retrieve(vs, query)
+            raw = _bm25_retrieve(query)
         except Exception:
             raw = []
 
         # Timed end-to-end answer
         t0 = time.perf_counter()
         try:
-            answer = get_information(vs, query)
+            answer = get_information(query)
         except Exception as exc:
             answer = f"ERROR: {exc}"
         latency_ms = (time.perf_counter() - t0) * 1000
