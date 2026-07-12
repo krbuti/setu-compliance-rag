@@ -519,6 +519,10 @@ def _run_pipeline(vs: Chroma, query: str) -> tuple[str, list[Document]]:
     answer_prompt = (
         "You are a SETU policy information assistant.\n"
         "Answer the question using ONLY the policy excerpts below.\n"
+        "STRICT GROUNDING RULE: Every sentence you write must be directly supported by "
+        "text in the excerpts. Do not add general knowledge, inferences, or facts not "
+        "stated in the excerpts. If a specific number, date, or requirement is not "
+        "word-for-word in the excerpts, do not include it.\n"
         "Always name the policy document (shown as [Source: ...]) in your answer.\n"
         "If the excerpts are on-topic but lack a specific number or date, explain what "
         "the policy DOES say (e.g. 'entitlements are set in individual contracts') — "
@@ -536,9 +540,17 @@ def _run_pipeline(vs: Chroma, query: str) -> tuple[str, list[Document]]:
     )
     initial_answer = llm.invoke(answer_prompt).content
 
-    # Targeted verification: catches fake policy codes, invented emails, hallucinated
-    # source names. Skipped when the answer is already low-risk (~400ms saved).
-    if _should_reflect(initial_answer):
+    # For targeted hallucination signals use reflect-and-verify (fast path).
+    # For synthesis queries (multiple policies, comparisons) use FactCorrector which
+    # does systematic claim-level verification — higher accuracy at cost of 2-3 extra
+    # LLM calls, but only fires when genuinely needed.
+    _SYNTHESIS_RE = re.compile(
+        r'\b(interact|relationship between|both policies|under both)\b',
+        re.IGNORECASE,
+    )
+    if _SYNTHESIS_RE.search(query):
+        final_answer = _factcorrect(query, initial_answer, top5, llm)
+    elif _should_reflect(initial_answer):
         final_answer = _reflect_and_verify(query, context, initial_answer, llm)
     else:
         final_answer = initial_answer
