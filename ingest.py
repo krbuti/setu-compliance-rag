@@ -12,6 +12,8 @@ Pipeline:
 This is fast (seconds) because Docling already ran in build_dataset.py.
 """
 import json
+import shutil
+import argparse
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -20,7 +22,7 @@ from langchain_core.documents import Document
 load_dotenv()
 
 from config.llm_config import get_embeddings
-from data_preprocessing import create_parent_child_chunks
+from data_preprocessing import create_parent_child_chunks, create_semantic_chunks
 
 DATASET_DIR = Path(__file__).parent / "dataset"
 CHROMA_DIR  = Path(__file__).parent / "chroma_db"
@@ -49,16 +51,29 @@ def load_dataset(dataset_dir: Path = DATASET_DIR) -> list[Document]:
     return docs
 
 
-def ingest(dataset_dir: Path = DATASET_DIR, chroma_dir: Path = CHROMA_DIR) -> int:
+def ingest(
+    dataset_dir: Path = DATASET_DIR,
+    chroma_dir: Path = CHROMA_DIR,
+    semantic: bool = False,
+    reset: bool = False,
+) -> int:
     from langchain_community.vectorstores import Chroma
+
+    if reset and chroma_dir.exists():
+        print(f"[INFO] --reset: deleting existing ChromaDB at {chroma_dir}")
+        shutil.rmtree(chroma_dir)
 
     raw_docs = load_dataset(dataset_dir)
     print(f"[INFO] Loaded {len(raw_docs)} documents from {dataset_dir}")
 
     embeddings = get_embeddings()
 
-    print("[INFO] Creating parent-child chunks...")
-    child_docs, _ = create_parent_child_chunks(raw_docs, child_size=256, parent_size=1024)
+    if semantic:
+        print("[INFO] Creating semantic (section-aware) chunks...")
+        child_docs, _ = create_semantic_chunks(raw_docs, child_size=512, parent_size=1536)
+    else:
+        print("[INFO] Creating fixed-size parent-child chunks...")
+        child_docs, _ = create_parent_child_chunks(raw_docs, child_size=256, parent_size=1024)
 
     child_docs = [c for c in child_docs if len(c["text"].strip()) >= 40]
     print(f"[INFO] Total child chunks to index: {len(child_docs)}")
@@ -102,4 +117,15 @@ def ingest(dataset_dir: Path = DATASET_DIR, chroma_dir: Path = CHROMA_DIR) -> in
 
 
 if __name__ == "__main__":
-    ingest()
+    parser = argparse.ArgumentParser(description="Ingest SETU policy documents into ChromaDB.")
+    parser.add_argument(
+        "--semantic", action="store_true",
+        help="Use section-aware semantic chunking (512-char child, 1536-char parent) "
+             "instead of fixed character-count splits.",
+    )
+    parser.add_argument(
+        "--reset", action="store_true",
+        help="Delete and recreate ChromaDB before ingesting. Required when changing chunk strategy.",
+    )
+    args = parser.parse_args()
+    ingest(semantic=args.semantic, reset=args.reset)

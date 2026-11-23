@@ -37,7 +37,7 @@ GROQ_MODELS = {
 # Cerebras models (wafer-scale fast inference, OpenAI-compatible)
 CEREBRAS_MODELS = {
     "llama-3.1-8b":  "llama3.1-8b",
-    "llama-3.3-70b": "llama-3.3-70b",
+    "llama-3.3-70b": "llama3.3-70b",
 }
 CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
 
@@ -303,6 +303,7 @@ def _make_groq_llm(model_name: Optional[str], api_key: str, **kwargs):
         raise ImportError("Run: pip install langchain-groq")
     model_id = GROQ_MODELS.get(model_name or "llama-3.1-8b", model_name or "llama-3.1-8b-instant")
     print(f"[OK] Using Groq model: {model_id}")
+    kwargs.setdefault("max_tokens", 350)
     return ChatGroq(model=model_id, api_key=api_key, **kwargs)
 
 

@@ -23,6 +23,7 @@ COPY ingest.py            .
 
 # Bake in the pre-built vector store and policy documents.
 # No runtime ingest needed — chroma_db is read-only at query time.
+COPY static/              ./static/
 COPY dataset/             ./dataset/
 COPY chroma_db/           ./chroma_db/
 
@@ -33,10 +34,13 @@ ENV HF_HOME=/app/.cache \
     LLM_PROVIDER=groq \
     LLM_MODEL=llama-3.1-8b \
     EMBEDDINGS_PROVIDER=jina \
-    EMBEDDINGS_MODEL=jina-embeddings-v2-base-en
+    EMBEDDINGS_MODEL=jina-embeddings-v2-base-en \
+    LANGCHAIN_TRACING_V2=false \
+    LANGCHAIN_PROJECT=setu-compliance-rag
 
-# Pre-download cross-encoder reranker during build (no outbound calls at runtime).
-RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+# Pre-create HF cache directory so the cross-encoder downloads here at first startup.
+# Build-time download is skipped — HuggingFace rate-limits unauthenticated build workers.
+RUN mkdir -p /app/.cache
 
 # OpenShift runs containers as a random non-root UID in group 0.
 # uid=1001, gid=0 pattern: group-readable so any arbitrary UID works.

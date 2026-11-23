@@ -16,3 +16,4 @@ langgraph==1.0.10
 langgraph-prebuilt==1.0.8
 chromadb==1.5.8
 gradio
+redis

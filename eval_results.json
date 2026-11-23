@@ -1,0 +1,177 @@
+{
+  "aggregate": {
+    "n": 15,
+    "avg_latency_ms": 2223,
+    "retrieval_precision": 0.133,
+    "answer_precision": 0.778,
+    "answer_recall": 0.689,
+    "citation_accuracy": 0.822
+  },
+  "per_query": [
+    {
+      "id": "E1",
+      "difficulty": "easy",
+      "query": "How many weeks of maternity leave is a SETU staff member entitled to?",
+      "answer": "A SETU staff member is entitled to 26 consecutive weeks of maternity leave with full pay. Additionally, they may apply for up to 16 weeks of special leave without pay at the end of paid maternity leave. \n\n[Source: Leave Management Policy]",
+      "latency_ms": 1228,
+      "retrieval_precision": 0.333,
+      "answer_precision": 0.667,
+      "answer_recall": 1.0,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "E2",
+      "difficulty": "easy",
+      "query": "What lawful bases does SETU use to process personal data under GDPR?",
+      "answer": "SETU uses a legitimate interest as a lawful basis to process the personal data of researchers, as it has a legitimate interest and contractual obligations to its funders to retain such data ([Source: Procedures for Managing Allegations of Misconduct in Research]). The university also processes personal data to comply with its GDPR obligations, adhering to the General Data Protection Regulation when processing personal data ([Source: Procedures for Managing Allegations of Misconduct in Research] and [Source: Fitness to Practise Policy & Procedure (Department of Pharmacy)]).",
+      "latency_ms": 938,
+      "retrieval_precision": 0.333,
+      "answer_precision": 1.0,
+      "answer_recall": 1.0,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "E3",
+      "difficulty": "easy",
+      "query": "What is SETU's policy on Garda vetting — when is it required and who must comply?",
+      "answer": "According to the Garda Vetting Policy, the process must be completed by SETU employees and applicants to new positions in the University within 5 working days from the initial request [Source: Garda Vetting Policy]. This applies to those who are required to undergo the vetting process, with failure to cooperate leading to disciplinary action, including dismissal [Source: Garda Vetting Policy].",
+      "latency_ms": 927,
+      "retrieval_precision": 0.333,
+      "answer_precision": 1.0,
+      "answer_recall": 1.0,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "E4",
+      "difficulty": "easy",
+      "query": "What must SETU staff disclose when using Gen AI tools for official work?",
+      "answer": "When using Gen AI tools for official work, SETU staff are required to disclose certain information. However, no specific disclosure requirements are mentioned in the provided policy excerpts. Therefore, it is unclear what specific information SETU staff must disclose when using Gen AI tools for official work.",
+      "latency_ms": 878,
+      "retrieval_precision": 0.0,
+      "answer_precision": 0.667,
+      "answer_recall": 0.333,
+      "citation_accuracy": 0.667
+    },
+    {
+      "id": "E5",
+      "difficulty": "easy",
+      "query": "What are SETU's equality and diversity obligations towards staff under the EDI Policy?",
+      "answer": "SETU is committed to maintaining an environment of dignity and respect where all staff can develop to their full potential, and to promote equality of opportunity and treatment under the Equality, Diversity & Inclusion Policy. [Source: Equality, Diversity & Inclusion Policy] This commitment reflects SETU's obligations under relevant Acts, including the Equal Status Acts 2000 (amended).",
+      "latency_ms": 971,
+      "retrieval_precision": 0.0,
+      "answer_precision": 1.0,
+      "answer_recall": 0.667,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "M1",
+      "difficulty": "medium",
+      "query": "What leave is available to SETU staff with caring responsibilities?",
+      "answer": "According to the [Supporting Employees with Caring Responsibilities Policy], various leave options are available to SETU staff with caring responsibilities. Specifically, job sharing is open to all staff across SETU, carers leave is available to all staff (unpaid, with the possibility of applying for Carer's Benefit), and domestic violence leave is available to all staff (paid).",
+      "latency_ms": 874,
+      "retrieval_precision": 0.333,
+      "answer_precision": 1.0,
+      "answer_recall": 0.667,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "M2",
+      "difficulty": "medium",
+      "query": "What are the formal stages in reporting research misconduct at SETU?",
+      "answer": "According to [Source: Procedures for Managing Allegations of Misconduct in Research], Appendix 2 provides a timeline of the research misconduct procedures and the possible outcomes from each phase. However, the specific stages in reporting research misconduct are not explicitly listed in the provided excerpts.",
+      "latency_ms": 832,
+      "retrieval_precision": 0.0,
+      "answer_precision": 1.0,
+      "answer_recall": 0.667,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "M3",
+      "difficulty": "medium",
+      "query": "Who owns intellectual property created by staff during employment at SETU?",
+      "answer": "According to the Intellectual Property Policy, the ownership of intellectual property created by staff during employment at SETU is governed by the contract of employment, registration form, acceptance form, or intellectual property assignment signed by staff (Source: Intellectual Property Policy).",
+      "latency_ms": 798,
+      "retrieval_precision": 0.333,
+      "answer_precision": 1.0,
+      "answer_recall": 0.667,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "M4",
+      "difficulty": "medium",
+      "query": "What are the consequences for a SETU staff member who breaches the Data Protection Policy?",
+      "answer": "No dedicated SETU policy on consequences for a staff member who breaches the Data Protection Policy was found in the retrieved documents. However, the Data Protection Policy suggests that a suitable course of action to resolve the incident should be determined. \n\n[Source: Data Protection Policy]",
+      "latency_ms": 880,
+      "retrieval_precision": 0.0,
+      "answer_precision": 1.0,
+      "answer_recall": 1.0,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "M5",
+      "difficulty": "medium",
+      "query": "What is the Garda Vetting Policy scope — which roles does it apply to?",
+      "answer": "The Garda Vetting Policy scope applies to roles identified in Appendix 3, as stated in [Source: Garda Vetting Policy]. This requirement will be highlighted to all prospective employees. No specific role names are provided in the excerpts.",
+      "latency_ms": 4940,
+      "retrieval_precision": 0.0,
+      "answer_precision": 0.333,
+      "answer_recall": 0.333,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "H1",
+      "difficulty": "hard",
+      "query": "How do the Equality Policy and Gender Identity Policy interact for a staff member requesting a name change?",
+      "answer": "No dedicated SETU policy on name change procedures was found in the retrieved documents. However, the Gender Identity & Expression Policy (Source: Gender Identity & Expression Policy) may be relevant, as it deals with staff members' identity and expression, including the possibility of a name change. The policy owner for the Gender Identity & Expression Policy is the Vice President for Equality, Diversity & Inclusion (Source: Gender Identity & Expression Policy).",
+      "latency_ms": 6271,
+      "retrieval_precision": 0.0,
+      "answer_precision": 0.667,
+      "answer_recall": 1.0,
+      "citation_accuracy": 1.0
+    },
+    {
+      "id": "H2",
+      "difficulty": "hard",
+      "query": "What is SETU's approach to academic integrity and what counts as misconduct?",
+      "answer": "SETU is committed to ensuring the highest levels of research integrity in its community. Research integrity refers to all the factors that underpin good research practice and promote trust and confidence in the research process, covering all disciplines of research.  This refers to SETU's commitment to research integrity, as stated in [Source: Procedures for Managing Allegations of Misconduct in Research].",
+      "latency_ms": 949,
+      "retrieval_precision": 0.0,
+      "answer_precision": 0.333,
+      "answer_recall": 0.333,
+      "citation_accuracy": 0.0
+    },
+    {
+      "id": "H3",
+      "difficulty": "hard",
+      "query": "Can SETU share employee personal data with a third-party recruitment agency?",
+      "answer": "No dedicated SETU policy on sharing employee personal data with third-party recruitment agencies was found in the retrieved documents. \n\nHowever, the Recruitment & Selection Policy [Source: Recruitment & Selection Policy] does mention that SETU may have third-party arrangements with other institutions for services related to programmes leading to SETU awards. This suggests that SETU does engage with third-party entities, but the policy does not explicitly address the sharing of employee personal data with recruitment agencies.",
+      "latency_ms": 4999,
+      "retrieval_precision": 0.0,
+      "answer_precision": 0.667,
+      "answer_recall": 0.667,
+      "citation_accuracy": 0.667
+    },
+    {
+      "id": "H4",
+      "difficulty": "hard",
+      "query": "What types of behaviour constitute harassment under SETU's Dignity and Respect Policy?",
+      "answer": "No dedicated SETU policy on harassment behavior was found in the retrieved documents.",
+      "latency_ms": 3845,
+      "retrieval_precision": 0.333,
+      "answer_precision": 1.0,
+      "answer_recall": 0.333,
+      "citation_accuracy": 0.0
+    },
+    {
+      "id": "H5",
+      "difficulty": "hard",
+      "query": "What does SETU's policy say about using AI to write a research paper, and what must be disclosed?",
+      "answer": "No dedicated SETU policy on using AI to write a research paper was found in the retrieved documents. However, according to the [Source: SETU Staff Guidelines on the Use of Gen AI], SETU's approach to using GenAI is aligned with our Strategic Plan 2023 -2028, emphasizing responsible, ethical, and effective use of GenAI. It does not specifically address the use of AI to write a research paper, but it implies a focus on guiding staff towards best practices when using GenAI in their work.",
+      "latency_ms": 4017,
+      "retrieval_precision": 0.0,
+      "answer_precision": 0.333,
+      "answer_recall": 0.667,
+      "citation_accuracy": 1.0
+    }
+  ]
+}
