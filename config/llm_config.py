@@ -27,8 +27,12 @@ ANTHROPIC_MODELS = {
 
 # Groq free-tier models (fast LPU inference)
 GROQ_MODELS = {
-    "llama-3.1-8b":    "llama-3.1-8b-instant",
-    "llama-3.3-70b":   "llama-3.3-70b-versatile",
+    "gpt-oss-20b":     "openai/gpt-oss-20b",     # default: small, fast reasoning model
+    "gpt-oss-120b":    "openai/gpt-oss-120b",    # larger, for harder synthesis
+    # Groq shut down llama-3.1-8b-instant and llama-3.3-70b-versatile on 2026-08-16.
+    # Old aliases are kept so existing configs keep working, mapped to Groq's replacements.
+    "llama-3.1-8b":    "openai/gpt-oss-20b",
+    "llama-3.3-70b":   "openai/gpt-oss-120b",
     "llama-3.1-70b":   "llama-3.1-70b-versatile",
     "gemma2-9b":       "gemma2-9b-it",
     "mixtral-8x7b":    "mixtral-8x7b-32768",
@@ -301,9 +305,17 @@ def _make_groq_llm(model_name: Optional[str], api_key: str, **kwargs):
         from langchain_groq import ChatGroq
     except ImportError:
         raise ImportError("Run: pip install langchain-groq")
-    model_id = GROQ_MODELS.get(model_name or "llama-3.1-8b", model_name or "llama-3.1-8b-instant")
+    model_id = GROQ_MODELS.get(model_name or "gpt-oss-20b", model_name or "openai/gpt-oss-20b")
     print(f"[OK] Using Groq model: {model_id}")
-    kwargs.setdefault("max_tokens", 350)
+    if model_id.startswith("openai/gpt-oss"):
+        # Reasoning model: hidden reasoning tokens count toward max_tokens, so keep effort
+        # low (latency, cost) and leave room for the visible answer.
+        kwargs.setdefault("max_tokens", 1024)
+        model_kwargs = dict(kwargs.pop("model_kwargs", {}) or {})
+        model_kwargs.setdefault("reasoning_effort", "low")
+        kwargs["model_kwargs"] = model_kwargs
+    else:
+        kwargs.setdefault("max_tokens", 350)
     return ChatGroq(model=model_id, api_key=api_key, **kwargs)
 
 

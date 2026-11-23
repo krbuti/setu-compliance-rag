@@ -30,7 +30,7 @@ spec:
             - name: LLM_PROVIDER
               value: "groq"
             - name: LLM_MODEL
-              value: "llama-3.1-8b"
+              value: "gpt-oss-20b"
             - name: EMBEDDINGS_PROVIDER
               value: "jina"
             - name: EMBEDDINGS_MODEL

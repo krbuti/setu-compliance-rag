@@ -32,7 +32,7 @@ COPY chroma_db/           ./chroma_db/
 ENV HF_HOME=/app/.cache \
     HOME=/app \
     LLM_PROVIDER=groq \
-    LLM_MODEL=llama-3.1-8b \
+    LLM_MODEL=gpt-oss-20b \
     EMBEDDINGS_PROVIDER=jina \
     EMBEDDINGS_MODEL=jina-embeddings-v2-base-en \
     LANGCHAIN_TRACING_V2=false \

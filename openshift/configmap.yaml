@@ -4,6 +4,6 @@ metadata:
   name: setu-rag-config
 data:
   LLM_PROVIDER: "groq"
-  LLM_MODEL: "llama-3.1-8b"
+  LLM_MODEL: "gpt-oss-20b"
   EMBEDDINGS_PROVIDER: "jina"
   EMBEDDINGS_MODEL: "jina-embeddings-v2-base-en"

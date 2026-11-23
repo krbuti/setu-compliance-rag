@@ -85,7 +85,7 @@ class MetricsCollector:
                 "recent_queries": list(self._recent),
                 "system": {
                     "provider": os.getenv("LLM_PROVIDER", "groq"),
-                    "model": os.getenv("LLM_MODEL", "llama-3.1-8b"),
+                    "model": os.getenv("LLM_MODEL", "gpt-oss-20b"),
                     "chunks": 2584,
                     "policies": 48,
                 },

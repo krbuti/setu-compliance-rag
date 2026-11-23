@@ -11,6 +11,9 @@
 ![Jina](https://img.shields.io/badge/Embeddings-Jina_AI-blue)
 ![Gradio](https://img.shields.io/badge/UI-Gradio-orange)
 
+> **Model update (Nov 2026):** Groq retired `llama-3.1-8b-instant` on 16 Aug 2026. The default is now `openai/gpt-oss-20b` (low reasoning effort); older references to Llama 3.1 8B below describe the original build.
+
+
 > Multi-agent RAG chatbot over 48 SETU institutional policy PDFs.
 > Runs fully on **free cloud APIs** (Groq + Jina AI) — no local GPU required.
 > Includes a one-click Google Colab notebook with a shareable Gradio chat UI.
@@ -138,7 +141,7 @@ Edit `.env` — minimum required for cloud mode:
 
 ```dotenv
 LLM_PROVIDER=groq
-LLM_MODEL=llama-3.1-8b
+LLM_MODEL=gpt-oss-20b
 GROQ_API_KEY=gsk_...
 
 EMBEDDINGS_PROVIDER=jina
