@@ -2,9 +2,12 @@ name: CI — Probe Tests, Eval & OpenShift Deploy
 
 on:
   push:
-    branches: [main, Latest, DevOps]
+    branches: [main, dev, Latest, DevOps]
   pull_request:
-    branches: [main, Latest, DevOps]
+    branches: [main, dev, Latest, DevOps]
+  schedule:
+    - cron: "17 6 * * 1"     # full eval every Monday 06:17 UTC (runs from the default branch)
+  workflow_dispatch:          # "Run workflow" button in the Actions tab
 
 jobs:
   # ── Job 1: syntax & import check (no API keys needed) ─────────────────────
@@ -120,12 +123,12 @@ jobs:
           path: probe_results.json
           if-no-files-found: ignore
 
-  # ── Job 3: full eval metrics (weekly schedule only) ───────────────────────
+  # ── Job 3: full eval metrics (weekly schedule + manual run) ───────────────
   eval:
     name: Full Eval Metrics
     runs-on: ubuntu-latest
     needs: lint
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     env:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
