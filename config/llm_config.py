@@ -311,9 +311,7 @@ def _make_groq_llm(model_name: Optional[str], api_key: str, **kwargs):
         # Reasoning model: hidden reasoning tokens count toward max_tokens, so keep effort
         # low (latency, cost) and leave room for the visible answer.
         kwargs.setdefault("max_tokens", 1024)
-        model_kwargs = dict(kwargs.pop("model_kwargs", {}) or {})
-        model_kwargs.setdefault("reasoning_effort", "low")
-        kwargs["model_kwargs"] = model_kwargs
+        kwargs.setdefault("reasoning_effort", "low")  # ChatGroq field; must not go in model_kwargs
     else:
         kwargs.setdefault("max_tokens", 350)
     return ChatGroq(model=model_id, api_key=api_key, **kwargs)
